@@ -11,3 +11,8 @@ export function normalizeExpression(text: string): NormalizedExpression {
     .trim();
   return { original: text, normalized };
 }
+
+export function expressionId(normalizedText: string): string | undefined {
+  const normalized = normalizeExpression(normalizedText).normalized;
+  return normalized ? `expression-${normalized}` : undefined;
+}

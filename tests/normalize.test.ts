@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeExpression } from "../src/domain/normalize.js";
+import { expressionId, normalizeExpression } from "../src/domain/normalize.js";
 
 describe("normalizeExpression", () => {
   it("normalizes Chinese punctuation and Unicode whitespace without changing the original", () => {
@@ -14,5 +14,10 @@ describe("normalizeExpression", () => {
       original: "AI 工作流 https://example.com/Tool A.I.",
       normalized: "ai 工作流 a i",
     });
+  });
+
+  it("creates one stable expression id from normalized text", () => {
+    expect(expressionId(" AI 工作流！ ")).toBe(expressionId("ai 工作流"));
+    expect(expressionId("   ")).toBeUndefined();
   });
 });

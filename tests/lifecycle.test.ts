@@ -21,9 +21,17 @@ describe("deriveLifecycle", () => {
     expect(deriveLifecycle({ ...expression("fade", 0), lastSeenAt: "2026-08-25" }, expression("fade", 2, "stable"))).toBe("fading");
   });
 
-  it("does not fade an unchanged observation when the source failed", () => {
+  it("retains state for failed and insufficient partial coverage", () => {
     const previous = expression("failed", 2, "stable");
-    const current = { ...previous, occurrences: [], lastSeenAt: previous.lastSeenAt };
-    expect(deriveLifecycle(current, previous)).toBe("stable");
+    const current = { ...previous, occurrences: [], lastSeenAt: "2026-08-25T00:00:00.000Z" };
+    expect(deriveLifecycle(current, previous, { status: "failed" })).toBe("stable");
+    expect(deriveLifecycle(current, previous, { status: "partial", coverageAvailable: false })).toBe("stable");
+  });
+
+  it("compares instants canonically and ignores invalid dates for trend changes", () => {
+    const previous = { ...expression("dates", 2, "stable"), lastSeenAt: "2026-08-24T00:00:00.000Z" };
+    const sameInstant = { ...previous, occurrences: [], lastSeenAt: "2026-08-24T08:00:00.000+08:00" };
+    expect(deriveLifecycle(sameInstant, previous, { status: "available" })).toBe("stable");
+    expect(deriveLifecycle({ ...sameInstant, lastSeenAt: "not-a-date" }, previous, { status: "available" })).toBe("stable");
   });
 });

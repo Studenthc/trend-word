@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Evidence, RawSignal } from "../src/types.js";
+import { expressionId, normalizeExpression } from "../src/domain/normalize.js";
 import { qualifyOpportunity } from "../src/domain/qualification.js";
 
 export function productHuntSignalFixture(): RawSignal {
@@ -19,7 +20,7 @@ export function directEvidenceFor(subjectId: string): Evidence {
 
 describe("qualifyOpportunity", () => {
   it("does not qualify a product-name signal from one publisher", () => {
-    const result = qualifyOpportunity({ signals: [productHuntSignalFixture()], evidence: [directEvidenceFor("productHuntSignalFixture")], previous: [] });
+    const result = qualifyOpportunity({ signals: [productHuntSignalFixture()], evidence: [directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!)], previous: [] });
     expect(result.status).toBe("watch");
     expect(result.validation.demand).toBe("single_signal");
   });
@@ -28,17 +29,41 @@ describe("qualifyOpportunity", () => {
     const signal = productHuntSignalFixture();
     const signals = [signal, { ...signal, id: "github-1", sourceType: "github" as const, sourceName: "GitHub", sourceUrl: "https://github.com/example/repo", sourceFingerprint: "github-1", author: { name: "Developer" } }];
     const evidence = [
-      directEvidenceFor(signal.id),
-      { ...directEvidenceFor(signal.id), id: "competition", claimType: "serp_competition" as const, rawSignalId: "github-1" },
-      { ...directEvidenceFor(signal.id), id: "delivery", claimType: "delivery" as const, rawSignalId: "github-1" },
-      { ...directEvidenceFor(signal.id), id: "audience", claimType: "user_problem" as const, rawSignalId: "github-1" },
+      directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!),
+      { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "competition", claimType: "serp_competition" as const, rawSignalId: "github-1" },
+      { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "delivery", claimType: "delivery" as const, rawSignalId: "github-1" },
+      { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "audience", claimType: "user_problem" as const, rawSignalId: "github-1" },
     ];
-    const result = qualifyOpportunity({ signals, evidence, previous: [], audience: "AI creators", recommendedArtifact: "tool" });
+    const result = qualifyOpportunity({ signals, evidence, previous: [], audience: "AI creators", recommendedArtifact: "tool", competition: "mixed", delivery: "quick_mvp", commercialEvidence: true });
     expect(result.status).toBe("actionable");
+    expect(result.primaryExpressionId).toBe(expressionId(normalizeExpression("AI Workflow").normalized));
+    expect(result.evidenceIds).toEqual(evidence.map((item) => item.id));
   });
 
   it("downgrades brand risk instead of treating it as actionable", () => {
-    const result = qualifyOpportunity({ signals: [productHuntSignalFixture()], evidence: [directEvidenceFor("productHuntSignalFixture")], previous: [], riskFlags: ["brand"] });
+    const result = qualifyOpportunity({ signals: [productHuntSignalFixture()], evidence: [directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!)], previous: [], riskFlags: ["品牌风险"] });
+    expect(result.status).toBe("rejected");
+  });
+
+  it("removes invalid evidence ids and evaluates explicit supply and commercial gates", () => {
+    const signal = productHuntSignalFixture();
+    const valid = directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!);
+    const result = qualifyOpportunity({ signals: [signal], evidence: [{ ...valid, id: "bad", rawSignalId: "missing" }, valid], previous: [], supplyEvidence: true, commercialEvidence: true, audience: "creators", recommendedArtifact: "tool" });
+    expect(result.status).toBe("watch");
+    expect(result.evidenceIds).toEqual([valid.id]);
+    expect(result.validation.missingChecks).toContain("valid evidence references");
+  });
+
+  it.each(["medical", "金融", "成人", "版权", "account service"]) ("rejects high risk flag %s", (risk) => {
+    const result = qualifyOpportunity({ signals: [productHuntSignalFixture()], evidence: [], previous: [], riskFlags: [risk] });
+    expect(result.status).toBe("rejected");
+  });
+
+  it("does not suppress a risk claim with an empty explicit risk list", () => {
+    const signal = productHuntSignalFixture();
+    const subjectId = expressionId(normalizeExpression(signal.title ?? "").normalized)!;
+    const risk = { ...directEvidenceFor(subjectId), id: "risk", claimType: "risk" as const, quote: "medical service" };
+    const result = qualifyOpportunity({ signals: [signal], evidence: [risk], previous: [], riskFlags: [] });
     expect(result.status).toBe("rejected");
   });
 });

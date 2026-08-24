@@ -24,4 +24,12 @@ describe("validateEvidence", () => {
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("missing raw signal");
   });
+
+  it("rejects evidence attached to another subject", () => {
+    const result = validateEvidence({
+      evidenceIds: ["evidence-1"], evidence: [evidence], rawSignals: [rawSignal], expectedSubjectId: "expression-2",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("subject");
+  });
 });
