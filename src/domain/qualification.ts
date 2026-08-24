@@ -3,6 +3,7 @@ import { expressionId, normalizeExpression } from "./normalize.js";
 import { dedupeRawSignals, mergeExpressions } from "./dedupe.js";
 import { validateEvidence } from "./evidence.js";
 import { canonicalTimestamp, type SourceCoverage } from "./lifecycle.js";
+import { isFreshTrendSnapshot } from "../sources/google-trends.js";
 
 export type QualificationInput = {
   signals: RawSignal[];
@@ -20,6 +21,7 @@ export type QualificationInput = {
   coverage: SourceCoverage;
   trendSnapshot?: TrendSnapshot;
   trends?: TrendSnapshot;
+  referenceAt?: string;
 };
 
 const highRisk = /brand|medical|finance|adult|copyright|account[- ]?service|品牌|医疗|医药|金融|成人|版权|账号服务|账户服务/i;
@@ -43,7 +45,7 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
   if (requestedExpressionId && !primaryExpression) throw new Error(`unknown expression id ${requestedExpressionId}`);
   const expectedSubjectId = primaryExpression?.id;
   const trendSnapshot = input.trendSnapshot ?? input.trends;
-  const validTrend = Boolean(trendSnapshot && trendSnapshot.status === "verified" && trendSnapshot.expressionId === expectedSubjectId);
+  const validTrend = Boolean(trendSnapshot && trendSnapshot.status === "verified" && trendSnapshot.expressionId === expectedSubjectId && isFreshTrendSnapshot(trendSnapshot, input.referenceAt));
   const candidateSignals = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText) : [];
   const candidateRawSignalIds = primaryExpression ? candidateSignals.map((signal) => signal.id) : undefined;
   const checked = validateEvidence({

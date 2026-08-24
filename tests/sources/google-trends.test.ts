@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseManualTrendsSnapshot, resolveGoogleTrends, type ManualTrendsSnapshotInput } from "../../src/sources/google-trends.js";
+import { isFreshTrendSnapshot, parseManualTrendsSnapshot, resolveGoogleTrends, type ManualTrendsSnapshotInput } from "../../src/sources/google-trends.js";
 
 describe("Google Trends optional verification boundary", () => {
   it("parses a manual snapshot with expression and trend fields", () => {
@@ -12,6 +12,19 @@ describe("Google Trends optional verification boundary", () => {
     for (const window of ["4h", "24h", "7d", "30d", "12m", "5y"] as const) {
       expect(parseManualTrendsSnapshot({ expressionId: "expression-ai", capturedAt: "2026-08-24T09:00:00Z", window, status: "partial" }).expressionId).toBe("expression-ai");
     }
+  });
+
+  it("defaults manual snapshots to unavailable", () => {
+    const snapshot = parseManualTrendsSnapshot({ expression: "AI", capturedAt: "2026-08-24T09:00:00Z", window: "24h" });
+    expect(snapshot.status).toBe("unavailable");
+  });
+
+  it("marks snapshots older than their selected window stale", () => {
+    const referenceAt = "2026-08-25T12:00:00.000Z";
+    const fresh = parseManualTrendsSnapshot({ expressionId: "expression-ai", capturedAt: "2026-08-24T13:00:00.000Z", window: "24h", status: "verified" });
+    const stale = parseManualTrendsSnapshot({ expressionId: "expression-ai", capturedAt: "2026-08-24T11:59:59.000Z", window: "24h", status: "verified" });
+    expect(isFreshTrendSnapshot(fresh, referenceAt)).toBe(true);
+    expect(isFreshTrendSnapshot(stale, referenceAt)).toBe(false);
   });
 
   it("returns unavailable without a provider instead of inventing zero or decline", async () => {

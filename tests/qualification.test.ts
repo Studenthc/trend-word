@@ -136,4 +136,12 @@ describe("qualifyOpportunity", () => {
     expect(result.status).toBe("watch");
     expect(result.validation.missingChecks).toContain("Google Trends 未验证");
   });
+
+  it("does not use an expired verified Trends snapshot for qualification", () => {
+    const signal = productHuntSignalFixture();
+    const result = qualifyOpportunity({ signals: [signal, { ...signal, id: "github", sourceType: "github", sourceName: "GitHub", sourceUrl: "https://github.com/example", sourceFingerprint: "github" }], evidence: [directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!)], previous: [], expressionId: expressionId(normalizeExpression("AI Workflow").normalized)!, audience: "creators", recommendedArtifact: "tool", competition: "mixed", delivery: "possible", commercialEvidence: true, trendSnapshot: { ...verifiedTrend, capturedAt: "2026-08-23T00:00:00.000Z" }, referenceAt: "2026-08-25T00:00:00.000Z", coverage: { status: "available" } });
+    expect(result.status).toBe("watch");
+    expect(result.validation.trend).toBe("unknown");
+    expect(result.validation.missingChecks).toContain("Google Trends 未验证");
+  });
 });
