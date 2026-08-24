@@ -1,4 +1,5 @@
 import { parseRawSignal, parseSourceHealth, type RawSignal, type SourceAdapter, type SourceCollection } from "../types.js";
+import { retryTransient } from "./retry.js";
 
 export type HttpTransport = (request: {
   url: string;
@@ -22,7 +23,7 @@ export function createXTimelineAdapter(transport: HttpTransport, options: XTimel
       for (const handle of handles) {
         try {
           const baseUrl = options.baseUrl ?? "https://api.x.example/timeline";
-          const response = await transport({ url: `${baseUrl}/${encodeURIComponent(handle)}/tweets`, method: "GET" });
+          const response = await retryTransient(() => transport({ url: `${baseUrl}/${encodeURIComponent(handle)}/tweets`, method: "GET" }));
           if (response.status < 200 || response.status >= 300) throw Object.assign(new Error(`HTTP ${response.status} for @${handle}`), { status: response.status });
           const payload = JSON.parse(await response.text()) as unknown;
           const items = timelineItems(payload);

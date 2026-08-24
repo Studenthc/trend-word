@@ -1,4 +1,5 @@
 import { parseRawSignal, parseSourceHealth, type RawSignal, type SourceAdapter, type SourceCollection } from "../types.js";
+import { retryTransient } from "./retry.js";
 
 export type HttpTransport = (request: {
   url: string;
@@ -22,7 +23,7 @@ export function createRedditFeedAdapter(transport: HttpTransport, options: Reddi
       let successfulEndpoints = 0;
       for (const community of communities) {
         try {
-          const response = await transport({ url: `${options.baseUrl ?? "https://www.reddit.example"}/r/${encodeURIComponent(community)}/new.json`, method: "GET" });
+          const response = await retryTransient(() => transport({ url: `${options.baseUrl ?? "https://www.reddit.example"}/r/${encodeURIComponent(community)}/new.json`, method: "GET" }));
           if (response.status < 200 || response.status >= 300) throw Object.assign(new Error(`HTTP ${response.status} for r/${community}`), { status: response.status });
           const body = await response.text();
           const items = parseFeed(body, response.headers.get("content-type") ?? "", options.parser);
@@ -60,6 +61,7 @@ function parseFeed(text: string, contentType: string, parser: RedditFeedParser |
 }
 
 function parseRss(text: string): unknown[] {
+  if (!/<rss\b[^>]*>/i.test(text) || !/<channel\b[^>]*>/i.test(text)) throw new Error("RSS feed parse failed: missing rss/channel structure");
   const items: Record<string, string>[] = [];
   for (const match of text.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
     const body = match[1] ?? "";
@@ -70,6 +72,7 @@ function parseRss(text: string): unknown[] {
 }
 
 function parsePage(text: string): unknown[] {
+  if (!/<feed\b[^>]*>/i.test(text) && !/<article\b[^>]*data-id=/i.test(text)) throw new Error("page feed parse failed: missing feed/article structure");
   const items: Record<string, string>[] = [];
   for (const match of text.matchAll(/<article[^>]*data-id=["']([^"']+)["'][^>]*>([\s\S]*?)<\/article>/gi)) {
     const body = match[2] ?? "";

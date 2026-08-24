@@ -44,4 +44,33 @@ describe("Reddit feed adapter", () => {
     const result = await createRedditFeedAdapter(async () => response(rss, 200), { communities: ["AI"], parser: "rss" }).collect(context);
     expect(result.signals[0]).toMatchObject({ externalId: "rss-1", title: "RSS workflow", body: "RSS body", author: { name: "rss-user" } });
   });
+
+  it("retries one transient community failure and keeps recovered posts", async () => {
+    let attempts = 0;
+    const result = await createRedditFeedAdapter(async () => { attempts += 1; if (attempts === 1) throw new Error("ECONNRESET"); return response(JSON.stringify({ data: { children: [{ data: post }] } })); }, { communities: ["AI"] }).collect(context);
+    expect(attempts).toBe(2);
+    expect(result.signals).toHaveLength(1);
+    expect(result.health.status).toBe("available");
+  });
+
+  it("rejects malformed RSS instead of treating it as an empty feed", async () => {
+    const result = await createRedditFeedAdapter(async () => response("<not-a-feed>", 200), { communities: ["AI"], parser: "rss" }).collect(context);
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toMatch(/RSS|feed|parse/i);
+  });
+
+  it("rejects malformed page documents instead of treating them as empty", async () => {
+    const result = await createRedditFeedAdapter(async () => response("plain text", 200), { communities: ["AI"], parser: "page" }).collect(context);
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toMatch(/page|feed|parse/i);
+  });
+
+  it("does not retry a rate-limited community", async () => {
+    let attempts = 0;
+    const result = await createRedditFeedAdapter(async () => { attempts += 1; return response("", 429); }, { communities: ["AI"] }).collect(context);
+    expect(attempts).toBe(1);
+    expect(result.health.status).toBe("blocked");
+  });
 });

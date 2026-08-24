@@ -35,4 +35,23 @@ describe("X timeline adapter", () => {
     expect(result.signals).toEqual([]);
     expect(result.health.status).toBe("empty");
   });
+
+  it("retries one transient endpoint failure and keeps the recovered signal", async () => {
+    let attempts = 0;
+    const result = await createXTimelineAdapter(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("ETIMEDOUT");
+      return response({ data: [{ id: "recovered", text: "Recovered post", author: "alice" }] });
+    }, { handles: ["alice"] }).collect(context);
+    expect(attempts).toBe(2);
+    expect(result.signals).toHaveLength(1);
+    expect(result.health.status).toBe("available");
+  });
+
+  it("bounds transient retries at one retry", async () => {
+    let attempts = 0;
+    const result = await createXTimelineAdapter(async () => { attempts += 1; throw new Error("fetch failed"); }, { handles: ["alice"] }).collect(context);
+    expect(attempts).toBe(2);
+    expect(result.health.status).toBe("unverified");
+  });
 });
