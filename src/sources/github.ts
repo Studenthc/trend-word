@@ -1,4 +1,5 @@
 import { parseRawSignal, parseSourceHealth, type RawSignal, type SourceAdapter, type SourceCollection } from "../types.js";
+import { dedupeRawSignals } from "../domain/dedupe.js";
 
 export type HttpTransport = (request: {
   url: string;
@@ -45,7 +46,8 @@ export function createGitHubAdapter(transport: HttpTransport, options: GitHubAda
           failures.push(`GitHub query ${query ?? "default"} failed: ${message(error)}`);
         }
       }
-      if (signals.length > 0) return collection(failures.length > 0 ? "partial" : "available", context.fetchedAt, signals, failures);
+      const dedupedSignals = dedupeRawSignals(signals);
+      if (dedupedSignals.length > 0) return collection(failures.length > 0 ? "partial" : "available", context.fetchedAt, dedupedSignals, failures);
       if (failures.length > 0 && successfulQueries > 0) return collection("partial", context.fetchedAt, [], failures);
       if (failures.length > 0) return collection(failureStatuses.some((status) => [401, 403, 404, 429].includes(status)) ? "blocked" : "unverified", context.fetchedAt, [], failures);
       return collection("empty", context.fetchedAt, []);

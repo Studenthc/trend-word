@@ -146,7 +146,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   for (const opportunity of opportunities) historyById.set(opportunity.id, opportunity);
   await store.writeHistory([...historyById.values()]);
   await store.writeHistoryExpressions(expressions);
-  const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: rawSignals, expressions, evidence, opportunities });
+  const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: deduped, expressions, evidence, opportunities });
   const reportPath = path.join(store.runDirectory, "report.md");
   const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities });
   await store.writeProjection("run-summary", { ...baseSummary, reportPath });

@@ -1,4 +1,5 @@
 import { parseRawSignal, parseSourceHealth, type RawSignal, type SourceAdapter, type SourceCollection, type SourceContext } from "../types.js";
+import { dedupeRawSignals } from "../domain/dedupe.js";
 
 export type McpTransport = (request: { method: string; params?: Record<string, unknown> }) => Promise<unknown>;
 
@@ -36,7 +37,7 @@ export function createScysMcpAdapter(transport: McpTransport, options: ScysMcpAd
           failures.push(`SCYS query ${query} failed: ${message(error)}`);
         }
       }
-      const signals = [...signalsById.values()];
+      const signals = dedupeRawSignals([...signalsById.values()]);
       const signalWarnings = signals.flatMap((signal) => [
         ...(signal.permission === "restricted" ? ["permission restricted"] : []),
         ...(signal.syncWarnings ?? []),

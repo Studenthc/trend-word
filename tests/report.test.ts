@@ -137,6 +137,17 @@ describe("daily radar report", () => {
     expect(result.summary.sourceHealth?.find((item) => item.sourceType === "x-timeline")).toMatchObject({ status: "unverified" });
   });
 
+  it("keeps summary signal counts aligned with deduped persisted records", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-query-dedupe-"));
+    const response = { status: 200, headers: new Headers(), text: async () => JSON.stringify({ items: [{ full_name: "acme/repeated", html_url: "https://github.com/acme/repeated", owner: { login: "acme" }, description: "Repeated" }] }) };
+    const result = await runRadar({ date: "2026-08-24", sourceNames: ["github"], workspaceRoot, transports: { github: async () => response } });
+    const rawLines = (await readFile(path.join(workspaceRoot, "data/runs/2026-08-24/raw-signals.jsonl"), "utf8")).trim().split(/\r?\n/u);
+    const expressions = JSON.parse(await readFile(path.join(workspaceRoot, "data/runs/2026-08-24/expressions.json"), "utf8")) as unknown[];
+    expect(result.summary.signalCount).toBe(1);
+    expect(rawLines).toHaveLength(1);
+    expect(expressions).toHaveLength(1);
+  });
+
   it("marks a manual failed signal as unavailable coverage", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-manual-failed-"));
     const inputPath = path.join(workspaceRoot, "failed.jsonl");

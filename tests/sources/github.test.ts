@@ -51,4 +51,10 @@ describe("GitHub adapter", () => {
     expect(result.health.status).toBe("partial");
     expect(result.health.failureReasons.join(" ")).toMatch(/429|rate/i);
   });
+
+  it("deduplicates the same repository returned by multiple queries", async () => {
+    const result = await createGitHubAdapter(async () => response({ items: [{ full_name: "acme/repeated", html_url: "https://github.com/acme/repeated", owner: { login: "acme" }, description: "Repeated" }] }), { queries: ["one", "two"] }).collect(context);
+    expect(result.signals.map((signal) => signal.externalId)).toEqual(["acme/repeated"]);
+    expect(result.health.itemCount).toBe(1);
+  });
 });
