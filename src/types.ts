@@ -185,15 +185,15 @@ const radarConfigShape = z.object({
     required: z.array(sourceTypeSchema),
     bestEffort: z.array(sourceTypeSchema),
     manual: z.boolean(),
-  }),
-  scys: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }),
-  producthunt: z.object({ enabled: z.boolean(), limit: z.number().int().positive() }),
-  github: z.object({ enabled: z.boolean(), queries: z.array(z.string()), limit: z.number().int().positive() }),
-  xTimeline: z.object({ enabled: z.boolean(), handles: z.array(z.string()) }),
-  redditFeed: z.object({ enabled: z.boolean(), communities: z.array(z.string()) }),
-  googleTrends: z.object({ mode: z.literal("manual-or-optional"), region: z.string() }),
-  report: z.object({ maxActionable: z.number().int().nonnegative(), maxWatch: z.number().int().nonnegative() }),
-});
+  }).strict(),
+  scys: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }).strict(),
+  producthunt: z.object({ enabled: z.boolean(), limit: z.number().int().positive() }).strict(),
+  github: z.object({ enabled: z.boolean(), queries: z.array(z.string()), limit: z.number().int().positive() }).strict(),
+  xTimeline: z.object({ enabled: z.boolean(), handles: z.array(z.string()) }).strict(),
+  redditFeed: z.object({ enabled: z.boolean(), communities: z.array(z.string()) }).strict(),
+  googleTrends: z.object({ mode: z.literal("manual-or-optional"), region: z.string() }).strict(),
+  report: z.object({ maxActionable: z.number().int().nonnegative(), maxWatch: z.number().int().nonnegative() }).strict(),
+}).strict();
 
 export const radarConfigSchema = radarConfigShape;
 

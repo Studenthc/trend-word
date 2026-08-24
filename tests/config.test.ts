@@ -35,6 +35,19 @@ describe("loadConfig", () => {
     });
   });
 
+  it("rejects unknown fields at the config boundary", async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await expect(loadConfig({
+        workspaceRoot,
+        overrides: { sourceHealthStatus: "success" } as unknown,
+      })).rejects.toThrow();
+      await expect(loadConfig({
+        workspaceRoot,
+        overrides: { github: { apiKey: "not-config" } } as unknown,
+      })).rejects.toThrow();
+    });
+  });
+
   it("rejects an unsupported source health status", () => {
     expect(() => parseSourceHealth({
       sourceType: "github",
@@ -46,13 +59,11 @@ describe("loadConfig", () => {
     })).toThrow();
   });
 
-  it("loads a fixture config and applies nested overrides without returning secret fields", async () => {
+  it("loads a fixture config and applies nested overrides", async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await writeFile(path.join(workspaceRoot, "radar.config.json"), JSON.stringify({
-        github: { enabled: false, limit: 7, apiKey: "file-secret" },
-        scys: { apiKey: "nested-file-secret" },
+        github: { enabled: false, limit: 7 },
         report: { maxWatch: 9 },
-        apiKey: "top-level-secret",
       }));
 
       const config = await loadConfig({
@@ -62,9 +73,6 @@ describe("loadConfig", () => {
 
       expect(config.github).toEqual({ enabled: false, queries: ["ai tool", "mcp", "agent"], limit: 11 });
       expect(config.report).toEqual({ maxActionable: 2, maxWatch: 9 });
-      expect(config).not.toHaveProperty("apiKey");
-      expect(config.scys).not.toHaveProperty("apiKey");
-      expect(config.github).not.toHaveProperty("apiKey");
     });
   });
 
