@@ -51,7 +51,7 @@ function parseJsonl(input: string): Array<{ row: number; value: unknown }> {
 
 function parseCsv(input: string): Array<{ row: number; value: unknown }> {
   const records: Array<{ row: number; values: string[] }> = [];
-  let row = 1;
+  let physicalRow = 1;
   let field = "";
   let fields: string[] = [];
   let quoted = false;
@@ -65,10 +65,18 @@ function parseCsv(input: string): Array<{ row: number; value: unknown }> {
     } else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && input[index + 1] === "\n") index += 1;
       fields.push(field); records.push({ row: startRow, values: fields });
-      row += 1; startRow = row; field = ""; fields = [];
+      physicalRow += 1; startRow = physicalRow; field = ""; fields = [];
+    } else if (character === "\n" || character === "\r") {
+      if (character === "\r" && input[index + 1] === "\n") { field += "\r\n"; index += 1; } else field += character;
+      physicalRow += 1;
     } else {
       field += character;
     }
+  }
+  if (quoted) {
+    const header = records.shift();
+    const parsed = header ? records.map((record) => ({ row: record.row, value: Object.fromEntries(header.values.map((key, index) => [key.trim(), record.values[index] ?? ""])) })) : [];
+    return [...parsed, { row: startRow, value: { __parseError: "unterminated quoted field" } }];
   }
   if (field || fields.length > 0) { fields.push(field); records.push({ row: startRow, values: fields }); }
   const header = records.shift();
@@ -93,13 +101,20 @@ function toRawSignal(value: unknown, row: number, options: ManualImportOptions):
   const id = text(value, ["id"]) ?? `manual-${row}`;
   const sourceName = text(value, ["sourceName", "source_name"]) ?? options.sourceName ?? "Manual import";
   const sourceFingerprint = text(value, ["sourceFingerprint", "source_fingerprint"]) ?? `manual:${sourceType}:${sourceUrl}:${externalId ?? title ?? body}`;
+  const evidenceStatus = parseEvidenceStatus(text(value, ["evidenceStatus", "evidence_status"]) ?? "verified");
+  const failureReason = text(value, ["failureReason", "failure_reason"]);
   return {
     id, sourceType, sourceName, sourceUrl, ...(externalId ? { externalId } : {}),
     ...(title ? { title } : {}), ...(body ? { body } : {}), ...(text(value, ["excerpt"]) ? { excerpt: text(value, ["excerpt"]) } : {}),
     ...(author ? { author } : {}),
     ...(text(value, ["publishedAt", "published_at", "published"]) ? { publishedAt: text(value, ["publishedAt", "published_at", "published"]) } : {}),
-    fetchedAt, sourceTier: "community", sourceFingerprint, evidenceStatus: "verified",
+    fetchedAt, sourceTier: "community", sourceFingerprint, evidenceStatus, ...(failureReason ? { failureReason } : {}),
   };
+}
+
+function parseEvidenceStatus(value: string): RawSignal["evidenceStatus"] {
+  if (value === "verified" || value === "partial" || value === "failed") return value;
+  throw new Error(`invalid evidenceStatus ${value}`);
 }
 
 function toAuthor(value: unknown): AuthorRef | undefined {

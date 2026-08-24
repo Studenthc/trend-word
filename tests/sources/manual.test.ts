@@ -41,4 +41,23 @@ describe("manual signal import", () => {
     expect(csvResult.signals[0]?.id).toBe("previous");
     expect(csvResult.errors.map((error) => error.row)).toEqual([3]);
   });
+
+  it("reports an unterminated CSV quote at its starting physical row and preserves quoted newlines", () => {
+    const validCsv = "sourceUrl,title\nhttps://example.com/quoted,\"Line one\nLine two\"\n";
+    const validResult = importManualSignals(validCsv, { format: "csv", fetchedAt: "2026-08-24T03:00:00Z" });
+    expect(validResult.errors).toEqual([]);
+    expect(validResult.signals[0]?.title).toBe("Line one\nLine two");
+
+    const invalidCsv = "sourceUrl,title\nhttps://example.com/good,Good\n\"https://example.com/unclosed,Unclosed title\ncontinued text";
+    const invalidResult = importManualSignals(invalidCsv, { format: "csv", previous: [previous], fetchedAt: "2026-08-24T03:00:00Z" });
+    expect(invalidResult.signals.map((item) => item.id)).toEqual(["previous", "manual-2"]);
+    expect(invalidResult.errors).toEqual([{ row: 3, message: expect.stringMatching(/unterminated quoted field/i) }]);
+  });
+
+  it("preserves failed evidence status and failure reason from manual input", () => {
+    const input = JSON.stringify({ sourceUrl: "https://example.com/failed", title: "Failed source", evidenceStatus: "failed", failureReason: "HTTP 403 Forbidden" });
+    const result = importManualSignals(input, { format: "jsonl", fetchedAt: "2026-08-24T03:00:00Z" });
+    expect(result.errors).toEqual([]);
+    expect(result.signals[0]).toMatchObject({ evidenceStatus: "failed", failureReason: "HTTP 403 Forbidden" });
+  });
 });

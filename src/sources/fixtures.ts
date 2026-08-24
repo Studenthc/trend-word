@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { parseRawSignal, type RawSignal, type SourceAdapter, type SourceCollection, type SourceContext } from "../types.js";
+import { parseRawSignal, type RawSignal, type SourceCollection, type SourceContext } from "../types.js";
 
 const fixturePath = fileURLToPath(new URL("../../fixtures/sample-signals.jsonl", import.meta.url));
 
@@ -26,9 +26,12 @@ export async function collectFixtures(context: SourceContext): Promise<SourceCol
   };
 }
 
-export const fixtureSourceAdapter: SourceAdapter = {
-  name: "fixtures",
-  collect: collectFixtures,
+export type MixedFixtureCorpus = {
+  kind: "mixed-fixture-corpus";
+  collect: typeof collectFixtures;
 };
 
-export const fixturesSourceAdapter = fixtureSourceAdapter;
+export const fixtureCorpus: MixedFixtureCorpus = {
+  kind: "mixed-fixture-corpus",
+  collect: collectFixtures,
+};
