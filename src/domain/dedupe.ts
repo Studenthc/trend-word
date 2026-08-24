@@ -9,9 +9,13 @@ function expressionText(signal: RawSignal): string | undefined {
 
 function rawIdentityKeys(signal: RawSignal): string[] {
   const source = signal.sourceType;
-  const keys = [`fingerprint:${source}:${signal.sourceFingerprint}:${signal.sourceUrl}:${signal.externalId ?? ""}`];
-  if (signal.sourceUrl) keys.push(`url:${source}:${signal.sourceUrl}`);
-  if (signal.externalId) keys.push(`external:${source}:${signal.externalId}`);
+  const keys: string[] = [];
+  const fingerprint = signal.sourceFingerprint.trim();
+  const sourceUrl = signal.sourceUrl.trim();
+  const externalId = signal.externalId?.trim();
+  if (fingerprint && (sourceUrl || externalId)) keys.push(`fingerprint:${source}:${fingerprint}:${sourceUrl}:${externalId ?? ""}`);
+  if (sourceUrl) keys.push(`url:${source}:${sourceUrl}`);
+  if (externalId) keys.push(`external:${source}:${externalId}`);
   return keys;
 }
 
@@ -27,7 +31,7 @@ export function dedupeRawSignals(signals: RawSignal[]): RawSignal[] {
   return result;
 }
 
-export function mergeExpressions(signals: RawSignal[], previous: Expression[], coverage?: SourceCoverage): Expression[] {
+export function mergeExpressions(signals: RawSignal[], previous: Expression[], coverage: SourceCoverage): Expression[] {
   const groups = new Map<string, RawSignal[]>();
   for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
     const text = expressionText(signal);
@@ -39,8 +43,20 @@ export function mergeExpressions(signals: RawSignal[], previous: Expression[], c
     groups.set(normalized, group);
   }
 
+  for (const item of previous) {
+    if (!groups.has(item.normalizedText)) groups.set(item.normalizedText, []);
+  }
+
+  const observationTimestamp = signals
+    .filter((item) => item.evidenceStatus !== "failed")
+    .flatMap((item) => [item.publishedAt, item.fetchedAt])
+    .map((value) => value ? canonicalTimestamp(value) : undefined)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+
   return [...groups.entries()].map(([normalizedText, group]) => {
-    const first = group[0]!;
+    const first = group[0];
     const previousExpression = previous.find((item) => item.normalizedText === normalizedText);
     const repostClusters = new Map<string, RawSignal>();
     for (const item of group) {
@@ -54,14 +70,24 @@ export function mergeExpressions(signals: RawSignal[], previous: Expression[], c
     const occurrences = group.map((item) => ({ rawSignalId: item.id, sourceType: item.sourceType, seenAt: canonicalTimestamp(item.fetchedAt) ?? (item.publishedAt ? canonicalTimestamp(item.publishedAt) : undefined) ?? "unknown" }));
     const timestamps = group.flatMap((item) => [item.publishedAt, item.fetchedAt]).map((value) => value ? canonicalTimestamp(value) : undefined).filter((value): value is string => Boolean(value)).sort();
     const firstSeenAt = canonicalTimestamp(previousExpression?.firstSeenAt ?? "") ?? timestamps[0] ?? "";
-    const lastSeenAt = timestamps.at(-1) ?? canonicalTimestamp(previousExpression?.lastSeenAt ?? "") ?? "";
-    const firstText = expressionText(first)!;
+    const lastSeenAt = timestamps.at(-1) ?? observationTimestamp ?? canonicalTimestamp(previousExpression?.lastSeenAt ?? "") ?? "";
+    const firstText = (first && expressionText(first)) ?? previousExpression?.text ?? "Unknown expression";
+    const aliases = new Set([
+      ...(previousExpression?.aliases ?? []),
+      ...(previousExpression?.text ? [previousExpression.text] : []),
+      ...group.map(expressionText).filter((value): value is string => Boolean(value)),
+    ]);
+    aliases.delete(firstText);
+    const sourceFamilies = representatives.length > 0 ? [...new Set(representatives.map((item) => item.sourceType))] : previousExpression?.sourceFamilies ?? [];
+    const independentAuthors = representatives.length > 0 ? authors.size : previousExpression?.independentAuthors ?? 0;
+    const independentCommunities = representatives.length > 0 ? communities.size : previousExpression?.independentCommunities ?? 0;
+    const independentPublishers = representatives.length > 0 ? publishers.size : previousExpression?.independentPublishers ?? 0;
     const current: Expression = {
-      id: expressionId(normalizedText) ?? `expression-${first.id}`,
-      text: firstText, normalizedText, aliases: [...new Set(group.map(expressionText).filter((value): value is string => Boolean(value)))].filter((item) => item !== firstText),
+      id: expressionId(normalizedText) ?? `expression-${first?.id ?? previousExpression?.id ?? "unknown"}`,
+      text: firstText, normalizedText, aliases: [...aliases],
       kind: previousExpression?.kind ?? "concept", firstSeenAt, lastSeenAt, occurrences,
-      sourceFamilies: [...new Set(representatives.map((item) => item.sourceType))], independentAuthors: authors.size,
-      independentCommunities: communities.size, independentPublishers: publishers.size,
+      sourceFamilies, independentAuthors,
+      independentCommunities, independentPublishers,
       lifecycle: "new",
       trendState: previousExpression?.trendState ?? "unknown", qualification: previousExpression?.qualification ?? "discovered", rejectionReasons: previousExpression?.rejectionReasons ?? [],
     };

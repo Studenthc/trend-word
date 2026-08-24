@@ -10,7 +10,7 @@ export function canonicalTimestamp(value: string): string | undefined {
   return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString();
 }
 
-export function deriveLifecycle(current: Expression, previous?: Expression, coverage: SourceCoverage = { status: "available" }): Expression["lifecycle"] {
+export function deriveLifecycle(current: Expression, previous: Expression | undefined, coverage: SourceCoverage): Expression["lifecycle"] {
   if (!previous) return "new";
   const currentCanonical = canonicalTimestamp(current.lastSeenAt);
   const previousCanonical = canonicalTimestamp(previous.lastSeenAt);

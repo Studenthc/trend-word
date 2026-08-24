@@ -14,11 +14,11 @@ function expression(id: string, count: number, lifecycle: Expression["lifecycle"
 
 describe("deriveLifecycle", () => {
   it("derives new, watch, rising, stable, and fading transitions", () => {
-    expect(deriveLifecycle(expression("new", 1))).toBe("new");
-    expect(deriveLifecycle(expression("watch", 1), expression("watch", 1, "new"))).toBe("watch");
-    expect(deriveLifecycle(expression("rise", 3), expression("rise", 1, "watch"))).toBe("rising");
-    expect(deriveLifecycle(expression("stable", 2), expression("stable", 2, "stable"))).toBe("stable");
-    expect(deriveLifecycle({ ...expression("fade", 0), lastSeenAt: "2026-08-25" }, expression("fade", 2, "stable"))).toBe("fading");
+    expect(deriveLifecycle(expression("new", 1), undefined, { status: "available" })).toBe("new");
+    expect(deriveLifecycle(expression("watch", 1), expression("watch", 1, "new"), { status: "available" })).toBe("watch");
+    expect(deriveLifecycle(expression("rise", 3), expression("rise", 1, "watch"), { status: "available" })).toBe("rising");
+    expect(deriveLifecycle(expression("stable", 2), expression("stable", 2, "stable"), { status: "available" })).toBe("stable");
+    expect(deriveLifecycle({ ...expression("fade", 0), lastSeenAt: "2026-08-25" }, expression("fade", 2, "stable"), { status: "available" })).toBe("fading");
   });
 
   it("retains state for failed and insufficient partial coverage", () => {

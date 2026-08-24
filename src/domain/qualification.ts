@@ -2,7 +2,7 @@ import type { Evidence, Expression, Opportunity, RawSignal, ValidationState } fr
 import { expressionId, normalizeExpression } from "./normalize.js";
 import { dedupeRawSignals, mergeExpressions } from "./dedupe.js";
 import { validateEvidence } from "./evidence.js";
-import { canonicalTimestamp } from "./lifecycle.js";
+import { canonicalTimestamp, type SourceCoverage } from "./lifecycle.js";
 
 export type QualificationInput = {
   signals: RawSignal[];
@@ -17,6 +17,7 @@ export type QualificationInput = {
   commercialEvidence?: boolean;
   expressionId?: string;
   candidateExpressionId?: string;
+  coverage?: SourceCoverage;
 };
 
 const highRisk = /brand|medical|finance|adult|copyright|account[- ]?service|品牌|医疗|医药|金融|成人|版权|账号服务|账户服务/i;
@@ -33,7 +34,7 @@ function signalExpression(signal: RawSignal): string | undefined {
 export function qualifyOpportunity(input: QualificationInput): Opportunity {
   const signals = input.signals;
   const projectionSignals = dedupeRawSignals(signals).filter((signal) => signal.evidenceStatus !== "failed");
-  const expressions = mergeExpressions(projectionSignals, input.previous);
+  const expressions = mergeExpressions(projectionSignals, input.previous, input.coverage ?? { status: "available" });
   const requestedExpressionId = input.expressionId ?? input.candidateExpressionId;
   if (!requestedExpressionId && expressions.length > 1) throw new Error("qualification requires an expression id for multiple expressions");
   const primaryExpression = requestedExpressionId ? expressions.find((item) => item.id === requestedExpressionId) : expressions[0];
