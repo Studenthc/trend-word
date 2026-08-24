@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { RawSignal, SourceCollection, SourceHealth } from "../src/types.js";
-import { runSafeSource, type SourceCollector } from "../src/sources/source.js";
+import { loadConfig } from "../src/config.js";
+import type { RawSignal, SourceCollection, SourceHealth, SourceContext } from "../src/types.js";
+import { runSafeSource as executeSafeSource, type SafeSourceOptions, type SourceCollector } from "../src/sources/source.js";
+
+async function testContext(): Promise<SourceContext> {
+  return {
+    workspaceRoot: "/tmp/task-5-source-health",
+    fetchedAt: "2026-08-24T00:00:00.000Z",
+    config: await loadConfig({ workspaceRoot: "/tmp/task-5-source-health" }),
+  };
+}
+
+async function runSafeSource(sourceType: SourceHealth["sourceType"], collect: SourceCollector, options: Omit<SafeSourceOptions, "context"> = {}) {
+  return executeSafeSource(sourceType, collect, { ...options, context: await testContext() });
+}
 
 function health(sourceType: SourceHealth["sourceType"], overrides: Partial<SourceHealth> = {}): SourceHealth {
   return {
@@ -28,10 +41,15 @@ function collection(sourceType: SourceHealth["sourceType"], signals: RawSignal[]
 
 describe("runSafeSource", () => {
   it("returns successful items with available health", async () => {
-    const result = await runSafeSource("fixtures", async () => collection("fixtures", [signal("one")]));
+    let receivedContext: SourceContext | undefined;
+    const result = await runSafeSource("fixtures", async (context) => {
+      receivedContext = context;
+      return collection("fixtures", [signal("one")]);
+    });
     expect(result.signals).toHaveLength(1);
     expect(result.health.status).toBe("available");
     expect(result.health.itemCount).toBe(1);
+    expect(receivedContext?.workspaceRoot).toBe("/tmp/task-5-source-health");
   });
 
   it("maps a valid empty response to empty, not failed", async () => {
@@ -115,5 +133,43 @@ describe("runSafeSource", () => {
     expect(attempts).toBe(2);
     expect(result.health.status).toBe("unverified");
     expect(result.health.failureReasons.join(" ")).toContain("ETIMEDOUT");
+  });
+
+  it("turns malformed signals into an unverified source failure", async () => {
+    const malformed = { signals: [{ id: "missing-required-fields" }], health: health("github") } as unknown as SourceCollection;
+    const result = await runSafeSource("github", async () => malformed, { attemptedAt: "2026-08-24T12:00:00.000Z" });
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toMatch(/raw signal|invalid/i);
+  });
+
+  it("turns a collection missing health or signals into an unverified source failure", async () => {
+    const result = await runSafeSource("github", async () => ({ signals: [] } as unknown as SourceCollection));
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toContain("missing signals or health");
+  });
+
+  it("turns malformed health metadata into an unverified source failure", async () => {
+    const malformed = { signals: [signal("one")], health: { sourceType: "github", status: "available" } } as unknown as SourceCollection;
+    const result = await runSafeSource("github", async () => malformed);
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toMatch(/health|invalid/i);
+  });
+
+  it("rejects health from a different source type", async () => {
+    const mismatched = collection("github", [signal("one")]);
+    const result = await runSafeSource("reddit-feed", async () => mismatched);
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toContain("sourceType");
+  });
+
+  it("uses executor attemptedAt instead of collector health attemptedAt", async () => {
+    const result = await runSafeSource("fixtures", async () => collection("fixtures", [signal("one")], {
+      attemptedAt: "not-a-date",
+    }), { attemptedAt: "2026-08-24T12:34:56.000Z" });
+    expect(result.health.attemptedAt).toBe("2026-08-24T12:34:56.000Z");
   });
 });
