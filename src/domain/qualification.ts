@@ -17,7 +17,7 @@ export type QualificationInput = {
   commercialEvidence?: boolean;
   expressionId?: string;
   candidateExpressionId?: string;
-  coverage?: SourceCoverage;
+  coverage: SourceCoverage;
 };
 
 const highRisk = /brand|medical|finance|adult|copyright|account[- ]?service|品牌|医疗|医药|金融|成人|版权|账号服务|账户服务/i;
@@ -34,13 +34,14 @@ function signalExpression(signal: RawSignal): string | undefined {
 export function qualifyOpportunity(input: QualificationInput): Opportunity {
   const signals = input.signals;
   const projectionSignals = dedupeRawSignals(signals).filter((signal) => signal.evidenceStatus !== "failed");
-  const expressions = mergeExpressions(projectionSignals, input.previous, input.coverage ?? { status: "available" });
+  const expressions = mergeExpressions(projectionSignals, input.previous, input.coverage);
   const requestedExpressionId = input.expressionId ?? input.candidateExpressionId;
   if (!requestedExpressionId && expressions.length > 1) throw new Error("qualification requires an expression id for multiple expressions");
   const primaryExpression = requestedExpressionId ? expressions.find((item) => item.id === requestedExpressionId) : expressions[0];
   if (requestedExpressionId && !primaryExpression) throw new Error(`unknown expression id ${requestedExpressionId}`);
   const expectedSubjectId = primaryExpression?.id;
-  const candidateRawSignalIds = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText).map((signal) => signal.id) : undefined;
+  const candidateSignals = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText) : [];
+  const candidateRawSignalIds = primaryExpression ? candidateSignals.map((signal) => signal.id) : undefined;
   const checked = validateEvidence({
     evidenceIds: input.evidence.map((item) => item.id),
     evidence: input.evidence,
@@ -54,8 +55,14 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
     ...(input.riskFlags ?? []),
     ...checked.evidence.filter((item) => item.claimType === "risk").map((item) => item.quote),
   ])];
-  const demand = (primaryExpression?.independentPublishers ?? 0) > 1 ? "cross_source" : projectionSignals.length > 1 ? "repeated" : "single_signal";
-  const evidenceSourceTypes = new Set(checked.evidence.map((item) => projectionSignals.find((signal) => signal.id === item.rawSignalId)?.sourceType).filter((value): value is RawSignal["sourceType"] => Boolean(value)));
+  const candidateClusters = new Map<string, RawSignal>();
+  for (const signal of candidateSignals) {
+    const cluster = signal.sourceFingerprint.trim() || signal.id;
+    if (!candidateClusters.has(cluster)) candidateClusters.set(cluster, signal);
+  }
+  const candidateIndependentPublishers = new Set([...candidateClusters.values()].map((signal) => signal.sourceType)).size;
+  const demand = candidateIndependentPublishers > 1 ? "cross_source" : candidateSignals.length > 1 ? "repeated" : "single_signal";
+  const evidenceSourceTypes = new Set(checked.evidence.map((item) => candidateSignals.find((signal) => signal.id === item.rawSignalId)?.sourceType).filter((value): value is RawSignal["sourceType"] => Boolean(value)));
   const independentDemandEvidence = demand !== "cross_source" || evidenceSourceTypes.size >= 2;
   const competition = input.competition ?? (input.supplyEvidence ? "thin" : claims.has("serp_competition") ? "mixed" : "unknown");
   const delivery = input.delivery ?? (claims.has("delivery") ? "possible" : "unknown");
@@ -63,7 +70,7 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
   const validation: ValidationState = {
     freshness: "unknown", trend: "unknown", intent: claims.has("monetization") || claims.has("delivery") ? "commercial" : "unknown",
     demand, competition, monetization: commercial ? "observed" : "unknown", delivery,
-    confidence: checked.valid && (primaryExpression?.independentPublishers ?? 0) > 1 ? "medium" : "low",
+    confidence: checked.valid && candidateIndependentPublishers > 1 ? "medium" : "low",
     missingChecks: [
       ...(claims.has("user_problem") || claims.has("adoption") || claims.has("search_intent") ? [] : ["demand evidence"]),
       ...(!independentDemandEvidence ? ["demand evidence"] : []),
@@ -74,9 +81,8 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
   };
   if (!checked.valid) validation.missingChecks.push("valid evidence references");
   const blocked = riskFlags.some((flag) => highRisk.test(flag));
-  const complete = checked.valid && validation.missingChecks.length === 0 && delivery !== "blocked" && riskFlags.length === 0 && independentDemandEvidence && (primaryExpression?.independentPublishers ?? 0) > 1;
+  const complete = checked.valid && validation.missingChecks.length === 0 && delivery !== "blocked" && riskFlags.length === 0 && independentDemandEvidence && candidateIndependentPublishers > 1;
   const status: Opportunity["status"] = blocked ? "rejected" : complete ? "actionable" : "watch";
-  const candidateSignals = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText) : [];
   const representative = candidateSignals[0];
   const title = representative ? usableText(representative) ?? "Unknown opportunity" : primaryExpression?.text ?? "Unknown opportunity";
   const createdAt = representative ? canonicalTimestamp(representative.fetchedAt) ?? (representative.publishedAt ? canonicalTimestamp(representative.publishedAt) : undefined) ?? "unknown" : "unknown";
