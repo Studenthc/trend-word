@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { appendJsonl } from "../src/storage/jsonl.js";
 import { RunStore } from "../src/storage/run-store.js";
-import type { Opportunity, RawSignal } from "../src/types.js";
+import type { Evidence, Opportunity, RawSignal, RunSummary } from "../src/types.js";
 
 async function createTempRunStore(): Promise<RunStore> {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "trend-word-storage-"));
@@ -52,6 +52,28 @@ function opportunity(id: string): Opportunity {
   };
 }
 
+function evidence(id: string): Evidence {
+  return {
+    id,
+    subjectId: `expression-${id}`,
+    claimType: "trend",
+    rawSignalId: `signal-${id}`,
+    quote: "A direct quote",
+    location: "body",
+    capturedAt: "2026-08-24T00:00:00.000Z",
+    evidenceGrade: "direct",
+  };
+}
+
+function runSummary(): RunSummary {
+  return {
+    date: "2026-08-24",
+    sourcesAttempted: ["fixtures"],
+    signalCount: 1,
+    warningCount: 0,
+  };
+}
+
 describe("RunStore", () => {
   it("appends and reads raw signals without changing record order", async () => {
     const store = await createTempRunStore();
@@ -96,6 +118,25 @@ describe("RunStore", () => {
     expect(await store.readProjection<Opportunity[]>("opportunities")).toEqual([record]);
   });
 
+  it("imports valid evidence JSONL", async () => {
+    const store = await createTempRunStore();
+    const record = evidence("imported");
+
+    await store.importJsonl("evidence", `${JSON.stringify(record)}\n`);
+
+    expect(await store.readProjection<Evidence[]>("evidence")).toEqual([record]);
+  });
+
+  it("reports the source line for invalid imported evidence records", async () => {
+    const store = await createTempRunStore();
+    await store.writeProjection("evidence", [evidence("keep")]);
+    const content = `${JSON.stringify(evidence("valid"))}\n${JSON.stringify({ id: "invalid" })}\n`;
+
+    await expect(store.importJsonl("evidence", content)).rejects.toThrow(/line 2/i);
+
+    expect(await store.readProjection<Evidence[]>("evidence")).toEqual([evidence("keep")]);
+  });
+
   it("rejects malformed projection records and preserves the previous projection", async () => {
     const store = await createTempRunStore();
     await store.writeProjection("opportunities", [opportunity("keep")]);
@@ -103,6 +144,15 @@ describe("RunStore", () => {
     await expect(store.writeProjection("opportunities", [{ id: "invalid" }])).rejects.toThrow();
 
     expect(await store.readProjection<Opportunity[]>("opportunities")).toEqual([opportunity("keep")]);
+  });
+
+  it("validates run summaries and preserves the previous summary", async () => {
+    const store = await createTempRunStore();
+    await store.writeProjection("run-summary", runSummary());
+
+    await expect(store.writeProjection("run-summary", { date: "2026-08-24" })).rejects.toThrow();
+
+    expect(await store.readProjection<RunSummary>("run-summary")).toEqual(runSummary());
   });
 
   it("writes and reads validated opportunity history", async () => {

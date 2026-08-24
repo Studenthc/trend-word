@@ -5,6 +5,7 @@ import {
   expressionSchema,
   opportunitySchema,
   parseRawSignal,
+  parseRunSummary,
   type RawSignal,
 } from "../types.js";
 import { appendJsonl, readJsonl, replaceJson } from "./jsonl.js";
@@ -17,10 +18,14 @@ const projectionValidators: Record<ProjectionName, Validator> = {
   expressions: (value) => expressionSchema.array().parse(value),
   opportunities: (value) => opportunitySchema.array().parse(value),
   evidence: (value) => evidenceSchema.array().parse(value),
-  "run-summary": (value) => value,
+  "run-summary": parseRunSummary,
 };
 
 const historyValidator: Validator = (value) => opportunitySchema.array().parse(value);
+const importRecordValidators: Record<ImportName, Validator> = {
+  opportunities: (value) => opportunitySchema.parse(value),
+  evidence: (value) => evidenceSchema.parse(value),
+};
 
 function validateRunDate(date: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -68,7 +73,7 @@ export class RunStore {
   }
 
   async importJsonl(name: ImportName, content: string): Promise<void> {
-    const records = await this.parseContent(content, `${name} import`);
+    const records = await this.parseContent(name, content);
     await replaceJson(this.projectionPath(name), projectionValidators[name](records));
   }
 
@@ -94,14 +99,15 @@ export class RunStore {
     return path.join(this.runDirectory, `${name}.json`);
   }
 
-  private async parseContent(content: string, filePath: string): Promise<unknown[]> {
+  private async parseContent(name: ImportName, content: string): Promise<unknown[]> {
     const records: unknown[] = [];
     for (const [index, line] of content.split(/\r?\n/).entries()) {
       if (line.trim() === "") continue;
       try {
-        records.push(JSON.parse(line));
+        records.push(importRecordValidators[name](JSON.parse(line)));
       } catch (error) {
-        throw new Error(`Invalid JSONL at ${filePath}, line ${index + 1}`, { cause: error });
+        const issue = error instanceof Error ? error.message : String(error);
+        throw new Error(`Invalid ${name} JSONL at line ${index + 1}: ${issue}`, { cause: error });
       }
     }
     return records;

@@ -180,6 +180,26 @@ export const sourceHealthSchema = z.object({
 export type SourceHealth = z.infer<typeof sourceHealthSchema>;
 export const parseSourceHealth = (value: unknown): SourceHealth => sourceHealthSchema.parse(value);
 
+export const runSummarySchema = z.object({
+  date: z.string(),
+  sourcesAttempted: z.array(z.string()),
+  sourcesSucceeded: z.array(z.string()).optional(),
+  sourceHealth: z.array(sourceHealthSchema).optional(),
+  signalCount: z.number().int().nonnegative().optional(),
+  expressionCount: z.number().int().nonnegative().optional(),
+  evidenceCount: z.number().int().nonnegative().optional(),
+  opportunityCount: z.number().int().nonnegative().optional(),
+  evidenceGradeCounts: z.record(z.number().int().nonnegative()).optional(),
+  candidateStatusCounts: z.record(z.number().int().nonnegative()).optional(),
+  failedSources: z.array(z.string()).optional(),
+  partialSources: z.array(z.string()).optional(),
+  warningCount: z.number().int().nonnegative().optional(),
+  reportPath: z.string().optional(),
+}).strict();
+
+export type RunSummary = z.infer<typeof runSummarySchema>;
+export const parseRunSummary = (value: unknown): RunSummary => runSummarySchema.parse(value);
+
 const radarConfigShape = z.object({
   sources: z.object({
     required: z.array(sourceTypeSchema),
