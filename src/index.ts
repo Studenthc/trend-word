@@ -6,15 +6,30 @@ import { qualifyOpportunity } from "./domain/qualification.js";
 import { renderMarkdownReport } from "./report/markdown.js";
 import { summarizeRun } from "./report/summary.js";
 import { loadFixtureSignals } from "./sources/fixtures.js";
+import { createGitHubAdapter, type HttpTransport as GitHubHttpTransport } from "./sources/github.js";
 import { importManualSignals } from "./sources/manual.js";
+import { createProductHuntAdapter, type HttpTransport as ProductHuntHttpTransport } from "./sources/producthunt.js";
+import { createScysMcpAdapter, type McpTransport } from "./sources/scys-mcp.js";
+import { runSafeSource } from "./sources/source.js";
+import { loadConfig } from "./config.js";
 import { RunStore } from "./storage/run-store.js";
-import { parseSourceHealth, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceHealth } from "./types.js";
+import { parseSourceHealth, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceType } from "./types.js";
+
+type StableSourceType = "scys-mcp" | "producthunt" | "github";
+export type InjectedSourceTransports = {
+  "scys-mcp"?: McpTransport;
+  producthunt?: ProductHuntHttpTransport;
+  github?: GitHubHttpTransport;
+};
 
 export type RadarRunOptions = {
   date: string;
   sourceNames?: string[];
   inputPath?: string;
   workspaceRoot?: string;
+  transports?: InjectedSourceTransports;
+  injectedTransports?: InjectedSourceTransports;
+  adapters?: Partial<Record<StableSourceType, SourceAdapter>>;
 };
 
 export type RadarRunResult = {
@@ -56,9 +71,11 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
 
 async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResult> {
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
-  const sourceNames = options.sourceNames ?? ["fixtures"];
+  const config = await loadConfig({ workspaceRoot });
+  const sourceNames = options.sourceNames ?? config.sources.required;
   const attemptedAt = new Date(`${options.date}T00:00:00.000Z`).toISOString();
   const store = new RunStore(workspaceRoot, options.date);
+  const sourceContext = { workspaceRoot, fetchedAt: attemptedAt, config };
   const previousExpressions = await store.readHistoryExpressions();
   const previousOpportunities = await store.readHistory<Opportunity[]>() ?? [];
   const existingRawSignals = await store.readRawSignals();
@@ -90,10 +107,17 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
     }
   }
 
+  const injectedTransports = options.transports ?? options.injectedTransports ?? {};
   for (const sourceName of sourceNames) {
-    if (["scys-mcp", "producthunt", "github", "x-timeline", "reddit-feed"].includes(sourceName) && !sourceHealth.some((item) => item.sourceType === sourceName)) {
-      sourceHealth.push({ sourceType: sourceName as SourceHealth["sourceType"], status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["source adapter is not implemented"], coverageNotes: ["source coverage unavailable; no new words cannot be inferred"] });
+    if (!(sourceName === "scys-mcp" || sourceName === "producthunt" || sourceName === "github") || sourceHealth.some((item) => item.sourceType === sourceName)) continue;
+    const adapter = stableAdapter(sourceName, options.adapters?.[sourceName], injectedTransports, config);
+    if (!adapter) {
+      sourceHealth.push({ sourceType: sourceName, status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["no injected transport configured"], coverageNotes: ["source coverage unavailable; no implicit network request made"] });
+      continue;
     }
+    const collection = await runSafeSource(sourceName, adapter.collect, { context: sourceContext, attemptedAt });
+    rawSignals.push(...collection.signals);
+    sourceHealth.push(collection.health);
   }
 
   const deduped = dedupeRawSignals(rawSignals);
@@ -125,6 +149,14 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   await writeFile(reportPath, report, "utf8");
   if (configurationError) throw configurationError;
   return { summary: { ...baseSummary, reportPath }, report, paths: { runDirectory: store.runDirectory, report: reportPath } };
+}
+
+function stableAdapter(sourceType: StableSourceType, supplied: SourceAdapter | undefined, transports: InjectedSourceTransports, config: Awaited<ReturnType<typeof loadConfig>>): SourceAdapter | undefined {
+  if (supplied) return supplied;
+  if (sourceType === "producthunt" && transports.producthunt) return createProductHuntAdapter(transports.producthunt, { limit: config.producthunt.limit });
+  if (sourceType === "github" && transports.github) return createGitHubAdapter(transports.github, { queries: config.github.queries, limit: config.github.limit });
+  if (sourceType === "scys-mcp" && transports["scys-mcp"]) return createScysMcpAdapter(transports["scys-mcp"], { query: config.scys.queries[0] ?? "AI" });
+  return undefined;
 }
 
 function healthForSignals(signals: RawSignal[], attemptedAt: string): SourceHealth[] {

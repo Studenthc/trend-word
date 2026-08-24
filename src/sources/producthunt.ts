@@ -7,7 +7,7 @@ export type HttpTransport = (request: {
   body?: string;
 }) => Promise<{ status: number; headers: Headers; text(): Promise<string> }>;
 
-export type ProductHuntAdapterOptions = { url?: string };
+export type ProductHuntAdapterOptions = { url?: string; limit?: number };
 
 export function createProductHuntAdapter(transport: HttpTransport, options: ProductHuntAdapterOptions = {}): SourceAdapter {
   return {
@@ -15,8 +15,10 @@ export function createProductHuntAdapter(transport: HttpTransport, options: Prod
     async collect(context): Promise<SourceCollection> {
       const attemptedAt = context.fetchedAt;
       try {
-        const response = await transport({ url: options.url ?? "https://api.producthunt.com/v2/posts", method: "GET" });
-        if (response.status === 403 || response.status === 429) return collection("blocked", attemptedAt, [], [`HTTP ${response.status} Product Hunt access limited`]);
+        const baseUrl = options.url ?? "https://api.producthunt.com/v2/posts";
+        const url = options.limit ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}limit=${options.limit}` : baseUrl;
+        const response = await transport({ url, method: "GET" });
+        if ([401, 403, 404, 429].includes(response.status)) return collection("blocked", attemptedAt, [], [`HTTP ${response.status} Product Hunt access limited`]);
         if (response.status < 200 || response.status >= 300) return collection("unverified", attemptedAt, [], [`HTTP ${response.status} Product Hunt response`]);
         const payload = parseJson(await response.text());
         const nodes = productNodes(payload);
@@ -36,8 +38,14 @@ export const productHuntAdapter = createProductHuntAdapter;
 function productNodes(value: unknown): Record<string, unknown>[] | undefined {
   if (!record(value)) return undefined;
   const posts = record(value.data) && record(value.data.posts) ? value.data.posts : value.posts ?? value.items;
-  if (Array.isArray(posts)) return posts.filter(record);
-  if (record(posts) && Array.isArray(posts.edges)) return posts.edges.map((edge) => record(edge) && record(edge.node) ? edge.node : undefined).filter((item): item is Record<string, unknown> => Boolean(item));
+  if (Array.isArray(posts)) {
+    if (posts.some((item) => !record(item))) throw new Error("malformed launch item");
+    return posts as Record<string, unknown>[];
+  }
+  if (record(posts) && Array.isArray(posts.edges)) {
+    if (posts.edges.some((edge) => !record(edge) || !record(edge.node))) throw new Error("malformed launch item");
+    return posts.edges.map((edge) => edge.node as Record<string, unknown>);
+  }
   return undefined;
 }
 

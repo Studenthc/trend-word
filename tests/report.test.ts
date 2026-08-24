@@ -8,6 +8,9 @@ import { summarizeRun } from "../src/report/summary.js";
 import { renderMarkdownReport } from "../src/report/markdown.js";
 import { mergeExpressions } from "../src/domain/dedupe.js";
 import { loadFixtureSignals } from "../src/sources/fixtures.js";
+import { type HttpTransport as ProductHuntTransport } from "../src/sources/producthunt.js";
+import { type HttpTransport as GitHubTransport } from "../src/sources/github.js";
+import { type McpTransport } from "../src/sources/scys-mcp.js";
 import { RunStore } from "../src/storage/run-store.js";
 import type { Evidence, Opportunity, RawSignal, SourceHealth } from "../src/types.js";
 
@@ -112,6 +115,17 @@ describe("daily radar report", () => {
     const result = await runRadar({ date: "2026-08-24", sourceNames: ["github"], workspaceRoot });
     expect(result.summary.sourceHealth?.find((item) => item.sourceType === "github")?.status).toBe("unverified");
     await expect(readFile(result.paths.report, "utf8")).resolves.toContain("github");
+  });
+
+  it("runs injected stable sources through the source registry", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-injected-sources-"));
+    const httpResponse = (body: unknown): Awaited<ReturnType<ProductHuntTransport>> => ({ status: 200, headers: new Headers(), text: async () => JSON.stringify(body) });
+    const producthunt: ProductHuntTransport = async () => httpResponse({ posts: [] });
+    const github: GitHubTransport = async () => httpResponse({ items: [] });
+    const scys: McpTransport = async () => ({ items: [] });
+    const result = await runRadar({ date: "2026-08-24", sourceNames: ["producthunt", "github", "scys-mcp"], workspaceRoot, transports: { producthunt, github, "scys-mcp": scys } });
+    expect(result.summary.sourceHealth?.map((item) => item.status)).toEqual(["empty", "empty", "empty"]);
+    expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "scys-mcp"]);
   });
 
   it("marks a manual failed signal as unavailable coverage", async () => {

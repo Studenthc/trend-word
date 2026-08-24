@@ -31,4 +31,15 @@ describe("Product Hunt adapter", () => {
     expect(result.health.status).toBe("unverified");
     expect(result.health.failureReasons.join(" ")).toMatch(/parse|json/i);
   });
+
+  it("does not turn a null launch item into an empty success", async () => {
+    const result = await createProductHuntAdapter(async () => response({ posts: [null] })).collect(context);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toMatch(/malformed|parse/i);
+  });
+
+  it.each([401, 404, 403, 429])("maps HTTP %s to blocked", async (status) => {
+    const result = await createProductHuntAdapter(async () => response({}, status)).collect(context);
+    expect(result.health.status).toBe("blocked");
+  });
 });

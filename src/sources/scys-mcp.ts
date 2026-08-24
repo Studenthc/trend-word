@@ -23,9 +23,15 @@ export function createScysMcpAdapter(transport: McpTransport, options: ScysMcpAd
             warnings.push(`topic detail failed: ${message(error)}`);
           }
         }
-        return collection(signals.length === 0 ? "unverified" : warnings.length > 0 ? "partial" : "available", context.fetchedAt, signals, warnings, warnings.length > 0 ? ["some SCYS topic details unavailable"] : []);
+        const signalWarnings = signals.flatMap((signal) => [
+          ...(signal.permission === "restricted" ? ["permission restricted"] : []),
+          ...(signal.syncWarnings ?? []),
+        ]);
+        const allWarnings = [...warnings, ...signalWarnings];
+        return collection(signals.length === 0 ? "unverified" : allWarnings.length > 0 ? "partial" : "available", context.fetchedAt, signals, warnings, allWarnings.length > 0 ? [`SCYS permission or sync warnings: ${allWarnings.join("; ")}`] : []);
       } catch (error) {
-        return collection("unverified", context.fetchedAt, [], [`SCYS MCP failed: ${message(error)}`]);
+        const status = errorStatus(error);
+        return collection(status !== undefined && [401, 403, 404, 429].includes(status) ? "blocked" : "unverified", context.fetchedAt, [], [`SCYS MCP${status ? ` HTTP ${status}` : ""} failed: ${message(error)}`]);
       }
     },
   };
@@ -37,7 +43,8 @@ function searchItems(value: unknown): Record<string, unknown>[] | undefined {
   const payload = unwrapMcpPayload(value);
   if (!record(payload)) return undefined;
   const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.results) ? payload.results : undefined;
-  return items?.filter(record);
+  if (items?.some((item) => !record(item))) throw new Error("malformed content-search item");
+  return items as Record<string, unknown>[] | undefined;
 }
 
 function toSignal(value: unknown, fetchedAt: string): RawSignal {
@@ -74,3 +81,4 @@ function hasText(value: Record<string, unknown>, key: string): boolean { return 
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
 function arrayOfText(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : []; }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function errorStatus(error: unknown): number | undefined { return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : undefined; }

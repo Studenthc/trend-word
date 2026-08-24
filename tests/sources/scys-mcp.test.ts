@@ -13,7 +13,7 @@ describe("SCYS MCP adapter", () => {
       return { id: "content-1", title: "AI workflow", author: { id: "author-1", name: "作者" }, publishedAt: "2026-08-23T08:00:00.000Z", tags: ["AI", "workflow"], body: "A reusable workflow", comments: 8, engagement: { likes: 20 }, permission: "public", syncWarnings: ["comments delayed"] };
     };
     const result = await createScysMcpAdapter(transport).collect(context);
-    expect(result.health).toMatchObject({ sourceType: "scys-mcp", status: "available", itemCount: 1 });
+    expect(result.health).toMatchObject({ sourceType: "scys-mcp", status: "partial", itemCount: 1 });
     expect(result.signals[0]).toMatchObject({ externalId: "content-1", title: "AI workflow", body: "A reusable workflow", tags: ["AI", "workflow"], permission: "public", syncWarnings: ["comments delayed"], engagement: { likes: 20, comments: 8 } });
     expect(JSON.stringify(result.signals)).not.toContain("token");
     expect(JSON.stringify(requests)).not.toMatch(/api[_-]?key|secret|authorization/i);
@@ -32,5 +32,13 @@ describe("SCYS MCP adapter", () => {
   it("preserves permission and sync warnings from a topic detail", async () => {
     const result = await createScysMcpAdapter(async () => ({ items: [{ id: "topic-1", title: "Topic", author: "Author", body: "Body", permission: "restricted", syncWarnings: ["permission delayed"] }] })).collect(context);
     expect(result.signals[0]).toMatchObject({ permission: "restricted", syncWarnings: ["permission delayed"] });
+    expect(result.health.status).toBe("partial");
+    expect(result.health.coverageNotes.join(" ")).toMatch(/permission|warning/i);
+  });
+
+  it("does not turn a null search item into an empty success", async () => {
+    const result = await createScysMcpAdapter(async () => ({ items: [null] })).collect(context);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toMatch(/malformed|parse/i);
   });
 });
