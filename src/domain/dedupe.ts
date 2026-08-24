@@ -29,7 +29,7 @@ export function dedupeRawSignals(signals: RawSignal[]): RawSignal[] {
 
 export function mergeExpressions(signals: RawSignal[], previous: Expression[], coverage?: SourceCoverage): Expression[] {
   const groups = new Map<string, RawSignal[]>();
-  for (const signal of signals) {
+  for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
     const text = expressionText(signal);
     if (!text) continue;
     const normalized = normalizeExpression(text).normalized;
@@ -48,10 +48,10 @@ export function mergeExpressions(signals: RawSignal[], previous: Expression[], c
       if (!repostClusters.has(cluster)) repostClusters.set(cluster, item);
     }
     const representatives = [...repostClusters.values()];
-    const authors = new Set(representatives.map((item) => item.author?.id ? `id:${item.author.id}` : item.author?.name ? `name:${item.author.name.trim().toLocaleLowerCase("en-US")}` : undefined).filter((value): value is string => Boolean(value)));
-    const communities = new Set(representatives.map((item) => item.community).filter((value): value is string => Boolean(value)));
-    const publishers = new Set(representatives.map((item) => item.sourceName));
-    const occurrences = group.map((item) => ({ rawSignalId: item.id, sourceType: item.sourceType, seenAt: item.fetchedAt }));
+    const authors = new Set(representatives.map((item) => item.author?.id ? `id:${item.sourceType}:${item.author.id}` : item.author?.name ? `name:${item.sourceType}:${item.author.name.trim().toLocaleLowerCase("en-US")}` : undefined).filter((value): value is string => Boolean(value)));
+    const communities = new Set(representatives.map((item) => item.community ? normalizeExpression(item.community).normalized : undefined).filter((value): value is string => Boolean(value)));
+    const publishers = new Set(representatives.map((item) => item.sourceType));
+    const occurrences = group.map((item) => ({ rawSignalId: item.id, sourceType: item.sourceType, seenAt: canonicalTimestamp(item.fetchedAt) ?? (item.publishedAt ? canonicalTimestamp(item.publishedAt) : undefined) ?? "unknown" }));
     const timestamps = group.flatMap((item) => [item.publishedAt, item.fetchedAt]).map((value) => value ? canonicalTimestamp(value) : undefined).filter((value): value is string => Boolean(value)).sort();
     const firstSeenAt = canonicalTimestamp(previousExpression?.firstSeenAt ?? "") ?? timestamps[0] ?? "";
     const lastSeenAt = timestamps.at(-1) ?? canonicalTimestamp(previousExpression?.lastSeenAt ?? "") ?? "";

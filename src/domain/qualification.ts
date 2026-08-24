@@ -1,7 +1,8 @@
 import type { Evidence, Expression, Opportunity, RawSignal, ValidationState } from "../types.js";
-import { expressionId } from "./normalize.js";
+import { expressionId, normalizeExpression } from "./normalize.js";
 import { dedupeRawSignals, mergeExpressions } from "./dedupe.js";
 import { validateEvidence } from "./evidence.js";
+import { canonicalTimestamp } from "./lifecycle.js";
 
 export type QualificationInput = {
   signals: RawSignal[];
@@ -20,38 +21,51 @@ export type QualificationInput = {
 
 const highRisk = /brand|medical|finance|adult|copyright|account[- ]?service|品牌|医疗|医药|金融|成人|版权|账号服务|账户服务/i;
 
+function usableText(signal: RawSignal): string | undefined {
+  return [signal.title, signal.excerpt, signal.body].find((value) => value?.trim())?.trim();
+}
+
+function signalExpression(signal: RawSignal): string | undefined {
+  const text = usableText(signal);
+  return text ? normalizeExpression(text).normalized : undefined;
+}
+
 export function qualifyOpportunity(input: QualificationInput): Opportunity {
   const signals = input.signals;
-  const projectionSignals = dedupeRawSignals(signals);
+  const projectionSignals = dedupeRawSignals(signals).filter((signal) => signal.evidenceStatus !== "failed");
   const expressions = mergeExpressions(projectionSignals, input.previous);
   const requestedExpressionId = input.expressionId ?? input.candidateExpressionId;
   if (!requestedExpressionId && expressions.length > 1) throw new Error("qualification requires an expression id for multiple expressions");
   const primaryExpression = requestedExpressionId ? expressions.find((item) => item.id === requestedExpressionId) : expressions[0];
   if (requestedExpressionId && !primaryExpression) throw new Error(`unknown expression id ${requestedExpressionId}`);
   const expectedSubjectId = primaryExpression?.id;
+  const candidateRawSignalIds = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText).map((signal) => signal.id) : undefined;
   const checked = validateEvidence({
     evidenceIds: input.evidence.map((item) => item.id),
     evidence: input.evidence,
-    rawSignals: signals,
+    rawSignals: projectionSignals,
     ...(expectedSubjectId ? { expectedSubjectId } : {}),
+    ...(candidateRawSignalIds ? { expectedRawSignalIds: candidateRawSignalIds } : {}),
   });
   const evidenceIds = checked.evidence.map((item) => item.id);
-  const publishers = new Set(signals.map((item) => item.sourceName));
   const claims = new Set(checked.evidence.map((item) => item.claimType));
   const riskFlags = [...new Set([
     ...(input.riskFlags ?? []),
     ...checked.evidence.filter((item) => item.claimType === "risk").map((item) => item.quote),
   ])];
-  const demand = (primaryExpression?.independentPublishers ?? publishers.size) > 1 ? "cross_source" : projectionSignals.length > 1 ? "repeated" : "single_signal";
+  const demand = (primaryExpression?.independentPublishers ?? 0) > 1 ? "cross_source" : projectionSignals.length > 1 ? "repeated" : "single_signal";
+  const evidenceSourceTypes = new Set(checked.evidence.map((item) => projectionSignals.find((signal) => signal.id === item.rawSignalId)?.sourceType).filter((value): value is RawSignal["sourceType"] => Boolean(value)));
+  const independentDemandEvidence = demand !== "cross_source" || evidenceSourceTypes.size >= 2;
   const competition = input.competition ?? (input.supplyEvidence ? "thin" : claims.has("serp_competition") ? "mixed" : "unknown");
   const delivery = input.delivery ?? (claims.has("delivery") ? "possible" : "unknown");
   const commercial = Boolean(input.commercialEvidence || claims.has("monetization"));
   const validation: ValidationState = {
     freshness: "unknown", trend: "unknown", intent: claims.has("monetization") || claims.has("delivery") ? "commercial" : "unknown",
     demand, competition, monetization: commercial ? "observed" : "unknown", delivery,
-    confidence: checked.valid && publishers.size > 1 ? "medium" : "low",
+    confidence: checked.valid && (primaryExpression?.independentPublishers ?? 0) > 1 ? "medium" : "low",
     missingChecks: [
       ...(claims.has("user_problem") || claims.has("adoption") || claims.has("search_intent") ? [] : ["demand evidence"]),
+      ...(!independentDemandEvidence ? ["demand evidence"] : []),
       ...(competition !== "unknown" ? [] : ["competition or supply evidence"]),
       ...(delivery === "blocked" || (delivery === "unknown" && !commercial) ? ["delivery or commercial evidence"] : []),
       ...(input.audience || (input.recommendedArtifact && input.recommendedArtifact !== "none") ? [] : ["clear audience or artifact"]),
@@ -59,14 +73,18 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
   };
   if (!checked.valid) validation.missingChecks.push("valid evidence references");
   const blocked = riskFlags.some((flag) => highRisk.test(flag));
-  const complete = checked.valid && validation.missingChecks.length === 0 && delivery !== "blocked" && riskFlags.length === 0 && (primaryExpression?.independentPublishers ?? publishers.size) > 1;
+  const complete = checked.valid && validation.missingChecks.length === 0 && delivery !== "blocked" && riskFlags.length === 0 && independentDemandEvidence && (primaryExpression?.independentPublishers ?? 0) > 1;
   const status: Opportunity["status"] = blocked ? "rejected" : complete ? "actionable" : "watch";
-  const primary = signals[0];
-  const title = primaryExpression?.text ?? primary?.title ?? "Untitled opportunity";
+  const candidateSignals = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText) : [];
+  const representative = candidateSignals[0];
+  const title = representative ? usableText(representative) ?? "Unknown opportunity" : primaryExpression?.text ?? "Unknown opportunity";
+  const createdAt = representative ? canonicalTimestamp(representative.fetchedAt) ?? (representative.publishedAt ? canonicalTimestamp(representative.publishedAt) : undefined) ?? "unknown" : "unknown";
+  const updatedAt = candidateSignals.map((signal) => canonicalTimestamp(signal.fetchedAt) ?? (signal.publishedAt ? canonicalTimestamp(signal.publishedAt) : undefined)).filter((value): value is string => Boolean(value)).sort().at(-1) ?? createdAt;
+  const summary = representative ? [representative.excerpt, representative.body, representative.title].find((value) => value?.trim())?.trim() ?? title : title;
   return {
-    id: `opportunity-${primary?.id ?? "empty"}`, primaryExpressionId: expectedSubjectId ?? expressionId(title) ?? `expression-${primary?.id ?? "empty"}`,
-    title, summary: primary?.excerpt ?? primary?.body ?? title, audiences: input.audience ? [input.audience] : [], userProblems: [],
+    id: `opportunity-${representative?.id ?? expectedSubjectId ?? "empty"}`, primaryExpressionId: expectedSubjectId ?? expressionId(title) ?? `expression-${representative?.id ?? "empty"}`,
+    title, summary, audiences: input.audience ? [input.audience] : [], userProblems: [],
     recommendedArtifact: input.recommendedArtifact ?? "observe", evidenceIds, validation, riskFlags,
-    status, createdAt: primary?.fetchedAt ?? "", updatedAt: primary?.fetchedAt ?? "",
+    status, createdAt, updatedAt,
   };
 }

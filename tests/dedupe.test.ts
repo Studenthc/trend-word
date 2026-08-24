@@ -87,6 +87,11 @@ describe("dedupeRawSignals", () => {
     expect(current).toHaveLength(1);
     expect(current[0]!.firstSeenAt).toBe("2026-08-24T00:00:00.000Z");
     expect(current[0]!.lastSeenAt).toBe("2026-08-24T00:00:00.000Z");
+    expect(current[0]!.occurrences[0]!.seenAt).toBe("2026-08-24T00:00:00.000Z");
+  });
+
+  it("excludes failed raw signals from expression projection", () => {
+    expect(mergeExpressions([signal("failed", { evidenceStatus: "failed" })], [])).toEqual([]);
   });
 
   it("deduplicates stable author ids when names vary across independent records", () => {
@@ -95,5 +100,15 @@ describe("dedupeRawSignals", () => {
       signal("b", { author: { id: "author-1", name: "Alice Chen" }, sourceFingerprint: "two", sourceUrl: "https://example.com/b" }),
     ], [])[0]!;
     expect(current.independentAuthors).toBe(1);
+  });
+
+  it("names independent publishers by source type and normalizes communities", () => {
+    const current = mergeExpressions([
+      signal("ph", { sourceType: "producthunt", sourceName: "Display A", community: " AI  Creators ", sourceFingerprint: "ph" }),
+      signal("gh", { sourceType: "github", sourceName: "Display B", community: "ai creators", sourceFingerprint: "gh", sourceUrl: "https://github.com/gh" }),
+    ], [])[0]!;
+    expect(current.independentPublishers).toBe(2);
+    expect(current.independentCommunities).toBe(1);
+    expect(current.sourceFamilies).toEqual(["producthunt", "github"]);
   });
 });

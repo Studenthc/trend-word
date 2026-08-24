@@ -29,6 +29,12 @@ describe("deriveLifecycle", () => {
     expect(deriveLifecycle({ ...current, occurrences: [current.occurrences[0]!] }, previous, { status: "failed" })).toBe("stable");
   });
 
+  it.each(["blocked", "empty", "unverified"] as const)("retains state for %s source coverage when observations decrease", (status) => {
+    const previous = expression("coverage", 2, "stable");
+    const current = { ...previous, occurrences: [previous.occurrences[0]!], lastSeenAt: "2026-08-25T00:00:00.000Z" };
+    expect(deriveLifecycle(current, previous, { status })).toBe("stable");
+  });
+
   it("compares instants canonically and ignores invalid dates for trend changes", () => {
     const previous = { ...expression("dates", 2, "stable"), lastSeenAt: "2026-08-24T00:00:00.000Z" };
     const sameInstant = { ...previous, occurrences: [], lastSeenAt: "2026-08-24T08:00:00.000+08:00" };

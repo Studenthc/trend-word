@@ -71,16 +71,22 @@ describe("qualifyOpportunity", () => {
 
   it("qualifies the explicitly selected expression instead of the first expression", () => {
     const first = productHuntSignalFixture();
-    const second = { ...first, id: "second", title: "Creator Billing", sourceUrl: "https://producthunt.com/posts/creator-billing", externalId: "ph-2" };
+    const second = { ...first, id: "second", title: "Creator Billing", excerpt: "Creator billing excerpt", body: "Creator billing body", sourceUrl: "https://producthunt.com/posts/creator-billing", externalId: "ph-2", fetchedAt: "2026-08-25T00:00:00.000Z" };
     const selectedId = expressionId(normalizeExpression(second.title).normalized)!;
     const evidence = [
       { ...directEvidenceFor(selectedId), id: "demand", claimType: "adoption" as const, rawSignalId: second.id },
       { ...directEvidenceFor(selectedId), id: "supply", claimType: "serp_competition" as const, rawSignalId: second.id },
       { ...directEvidenceFor(selectedId), id: "delivery", claimType: "delivery" as const, rawSignalId: second.id },
+      { ...directEvidenceFor(selectedId), id: "wrong-candidate", rawSignalId: first.id },
     ];
     const result = qualifyOpportunity({ signals: [first, second], evidence, previous: [], expressionId: selectedId, audience: "creators", recommendedArtifact: "tool", delivery: "possible" });
     expect(result.primaryExpressionId).toBe(selectedId);
-    expect(result.evidenceIds).toEqual(evidence.map((item) => item.id));
+    expect(result.title).toBe("Creator Billing");
+    expect(result.summary).toBe("Creator billing excerpt");
+    expect(result.id).toBe("opportunity-second");
+    expect(result.createdAt).toBe("2026-08-25T00:00:00.000Z");
+    expect(result.updatedAt).toBe("2026-08-25T00:00:00.000Z");
+    expect(result.evidenceIds).toEqual(["demand", "supply", "delivery"]);
   });
 
   it("does not qualify an ambiguous multi-expression input without a selected id", () => {
@@ -94,5 +100,23 @@ describe("qualifyOpportunity", () => {
     expect(result.status).toBe("watch");
     expect(result.validation.delivery).toBe("blocked");
     expect(result.validation.missingChecks).toContain("delivery or commercial evidence");
+  });
+
+  it("requires independent validated evidence for cross-source demand", () => {
+    const first = productHuntSignalFixture();
+    const second = { ...first, id: "github", sourceType: "github" as const, sourceName: "GitHub", sourceUrl: "https://github.com/example", sourceFingerprint: "github" };
+    const id = expressionId(normalizeExpression(first.title ?? "").normalized)!;
+    const result = qualifyOpportunity({ signals: [first, second], evidence: [directEvidenceFor(id)], previous: [], expressionId: id, competition: "mixed", delivery: "possible", commercialEvidence: true, audience: "creators", recommendedArtifact: "tool" });
+    expect(result.status).toBe("watch");
+    expect(result.validation.missingChecks).toContain("demand evidence");
+  });
+
+  it("excludes failed raw signals from qualification projections and counts", () => {
+    const valid = productHuntSignalFixture();
+    const failed = { ...valid, id: "failed", sourceType: "github" as const, sourceName: "GitHub", sourceUrl: "https://github.com/failed", sourceFingerprint: "failed", evidenceStatus: "failed" as const };
+    const id = expressionId(normalizeExpression(valid.title ?? "").normalized)!;
+    const result = qualifyOpportunity({ signals: [valid, failed], evidence: [directEvidenceFor(id)], previous: [], expressionId: id });
+    expect(result.validation.demand).toBe("single_signal");
+    expect(result.status).toBe("watch");
   });
 });

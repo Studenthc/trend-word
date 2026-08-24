@@ -1,7 +1,7 @@
-import type { Expression } from "../types.js";
+import type { Expression, SourceHealthStatus } from "../types.js";
 
 export type SourceCoverage = {
-  status: "available" | "partial" | "failed";
+  status: SourceHealthStatus | "failed";
   coverageAvailable?: boolean;
 };
 
@@ -17,7 +17,7 @@ export function deriveLifecycle(current: Expression, previous?: Expression, cove
   const currentInstant = currentCanonical ? Date.parse(currentCanonical) : undefined;
   const previousInstant = previousCanonical ? Date.parse(previousCanonical) : undefined;
   if (currentInstant === undefined || previousInstant === undefined) return previous.lifecycle;
-  const coverageInsufficient = coverage.status === "failed" || (coverage.status === "partial" && coverage.coverageAvailable !== true);
+  const coverageInsufficient = coverage.status === "failed" || coverage.status === "blocked" || coverage.status === "empty" || coverage.status === "unverified" || (coverage.status === "partial" && coverage.coverageAvailable !== true);
   if (coverageInsufficient) return previous.lifecycle;
   if (current.occurrences.length === 0 && currentInstant === previousInstant) return "stable";
   if (current.occurrences.length === 0 && currentInstant !== previousInstant) return "fading";
