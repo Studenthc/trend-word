@@ -1,0 +1,7 @@
+.worktrees/
+node_modules/
+data/
+reports/
+.env
+.env.*
+!.env.example
