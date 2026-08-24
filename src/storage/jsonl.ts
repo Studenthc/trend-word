@@ -2,7 +2,13 @@ import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/
 import path from "node:path";
 
 export async function appendJsonl<T>(filePath: string, records: readonly T[]): Promise<void> {
-  const lines = records.map((record) => `${JSON.stringify(record)}\n`).join("");
+  const lines = records.map((record) => {
+    const serialized = JSON.stringify(record);
+    if (serialized === undefined) {
+      throw new TypeError(`Cannot serialize JSONL record for ${filePath}`);
+    }
+    return `${serialized}\n`;
+  }).join("");
   if (lines.length === 0) return;
 
   await mkdir(path.dirname(filePath), { recursive: true });
