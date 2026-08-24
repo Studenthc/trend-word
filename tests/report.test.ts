@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,9 @@ import { parseCliArgs } from "../src/cli.js";
 import { runRadar } from "../src/index.js";
 import { summarizeRun } from "../src/report/summary.js";
 import { renderMarkdownReport } from "../src/report/markdown.js";
+import { mergeExpressions } from "../src/domain/dedupe.js";
+import { loadFixtureSignals } from "../src/sources/fixtures.js";
+import { RunStore } from "../src/storage/run-store.js";
 import type { Evidence, Opportunity, RawSignal, SourceHealth } from "../src/types.js";
 
 function signal(id: string, sourceType: RawSignal["sourceType"] = "fixtures", status: RawSignal["evidenceStatus"] = "verified"): RawSignal {
@@ -77,5 +80,41 @@ describe("daily radar report", () => {
     await expect(runRadar({ date: "2026-08-24", sourceNames: ["manual"], workspaceRoot })).rejects.toThrow(/requires --input/);
     const summary = JSON.parse(await readFile(path.join(workspaceRoot, "data/runs/2026-08-24/run-summary.json"), "utf8")) as { sourceHealth: SourceHealth[] };
     expect(summary.sourceHealth[0]?.status).toBe("blocked");
+  });
+
+  it("aggregates partial coverage and preserves missing historical lifecycle", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-partial-"));
+    const fixtureSignals = await loadFixtureSignals();
+    const historical = { ...mergeExpressions([{ ...fixtureSignals[0]!, title: "Historical only", id: "historical-only" }], [], { status: "available" })[0]!, lifecycle: "stable" as const };
+    const store = new RunStore(workspaceRoot, "2026-08-24");
+    await store.writeHistoryExpressions([historical]);
+    const result = await runRadar({ date: "2026-08-24", sourceNames: ["fixtures"], workspaceRoot });
+    const expression = result.summary.sourceHealth?.find((item) => item.status === "partial");
+    const expressions = JSON.parse(await readFile(path.join(workspaceRoot, "data/runs/2026-08-24/expressions.json"), "utf8")) as Array<{ normalizedText: string; lifecycle: string }>;
+    expect(expression?.status).toBe("partial");
+    expect(expressions.find((item) => item.normalizedText === "historical only")?.lifecycle).toBe("stable");
+  });
+
+  it("does not append duplicate raw signals on an idempotent rerun", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-idempotent-"));
+    await runRadar({ date: "2026-08-24", sourceNames: ["fixtures"], workspaceRoot });
+    await runRadar({ date: "2026-08-24", sourceNames: ["fixtures"], workspaceRoot });
+    const raw = (await readFile(path.join(workspaceRoot, "data/runs/2026-08-24/raw-signals.jsonl"), "utf8")).trim().split(/\r?\n/u);
+    expect(raw).toHaveLength((await loadFixtureSignals()).length);
+  });
+
+  it("reports unimplemented requested sources and continues writing artifacts", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-unimplemented-"));
+    const result = await runRadar({ date: "2026-08-24", sourceNames: ["github"], workspaceRoot });
+    expect(result.summary.sourceHealth?.find((item) => item.sourceType === "github")?.status).toBe("unverified");
+    await expect(readFile(result.paths.report, "utf8")).resolves.toContain("github");
+  });
+
+  it("marks a manual failed signal as unavailable coverage", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-manual-failed-"));
+    const inputPath = path.join(workspaceRoot, "failed.jsonl");
+    await writeFile(inputPath, `${JSON.stringify({ id: "failed", sourceUrl: "https://example.com/failed", title: "failed", sourceType: "manual", fetchedAt: "2026-08-24T00:00:00.000Z", evidenceStatus: "failed", failureReason: "HTTP 429" })}\n`);
+    const result = await runRadar({ date: "2026-08-24", sourceNames: ["manual"], inputPath, workspaceRoot });
+    expect(result.summary.sourceHealth?.find((item) => item.sourceType === "manual")?.status).toBe("unverified");
   });
 });

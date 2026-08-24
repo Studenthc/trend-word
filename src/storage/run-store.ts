@@ -7,6 +7,7 @@ import {
   parseRawSignal,
   parseRunSummary,
   type RawSignal,
+  type Expression,
 } from "../types.js";
 import { appendJsonl, readJsonl, replaceJson } from "./jsonl.js";
 
@@ -22,6 +23,7 @@ const projectionValidators: Record<ProjectionName, Validator> = {
 };
 
 const historyValidator: Validator = (value) => opportunitySchema.array().parse(value);
+const expressionHistoryValidator: Validator = (value) => expressionSchema.array().parse(value);
 const importRecordValidators: Record<ImportName, Validator> = {
   opportunities: (value) => opportunitySchema.parse(value),
   evidence: (value) => evidenceSchema.parse(value),
@@ -91,6 +93,24 @@ export class RunStore {
       )) as T;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+  }
+
+  async writeHistoryExpressions(value: Expression[]): Promise<void> {
+    await replaceJson(
+      path.join(this.workspaceRoot, "data", "history", "expressions.json"),
+      expressionHistoryValidator(value),
+    );
+  }
+
+  async readHistoryExpressions(): Promise<Expression[]> {
+    try {
+      return expressionHistoryValidator(JSON.parse(
+        await readFile(path.join(this.workspaceRoot, "data", "history", "expressions.json"), "utf8"),
+      )) as Expression[];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
   }

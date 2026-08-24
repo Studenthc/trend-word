@@ -27,6 +27,9 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const sourceNames = options.sourceNames ?? ["fixtures"];
   const attemptedAt = new Date(`${options.date}T00:00:00.000Z`).toISOString();
+  const store = new RunStore(workspaceRoot, options.date);
+  const previousExpressions = await store.readHistoryExpressions();
+  const existingRawSignals = await store.readRawSignals();
   let rawSignals: RawSignal[] = [];
   const sourceHealth: SourceHealth[] = [];
   let configurationError: Error | undefined;
@@ -46,7 +49,8 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
         const imported = importManualSignals(content, { fetchedAt: attemptedAt });
         rawSignals.push(...imported.signals);
         const manualSignals = imported.signals.filter((item) => item.sourceType === "manual");
-        sourceHealth.push({ sourceType: "manual", status: imported.errors.length > 0 ? "partial" : manualSignals.length > 0 ? "available" : "empty", attemptedAt, itemCount: manualSignals.length, failureReasons: imported.errors.map((item) => `row ${item.row}: ${item.message}`), coverageNotes: imported.errors.length > 0 ? ["manual input partially imported"] : [] });
+        const failedCount = manualSignals.filter((item) => item.evidenceStatus === "failed").length;
+        sourceHealth.push({ sourceType: "manual", status: failedCount === manualSignals.length && manualSignals.length > 0 ? "unverified" : failedCount > 0 || imported.errors.length > 0 ? "partial" : manualSignals.length > 0 ? "available" : "empty", attemptedAt, itemCount: manualSignals.length - failedCount, failureReasons: [...imported.errors.map((item) => `row ${item.row}: ${item.message}`), ...manualSignals.filter((item) => item.evidenceStatus === "failed").map((item) => item.failureReason ?? "failed signal")], coverageNotes: failedCount > 0 ? ["failed manual signal is not evidence of no new words"] : imported.errors.length > 0 ? ["manual input partially imported"] : [] });
       } catch (error) {
         configurationError = error instanceof Error ? error : new Error(String(error));
         sourceHealth.push({ sourceType: "manual", status: "blocked", attemptedAt, itemCount: 0, failureReasons: [configurationError.message], coverageNotes: ["manual input unavailable"] });
@@ -54,9 +58,17 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
     }
   }
 
+  for (const sourceName of sourceNames) {
+    if (["scys-mcp", "producthunt", "github", "x-timeline", "reddit-feed"].includes(sourceName) && !sourceHealth.some((item) => item.sourceType === sourceName)) {
+      sourceHealth.push({ sourceType: sourceName as SourceHealth["sourceType"], status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["source adapter is not implemented"], coverageNotes: ["source coverage unavailable; no new words cannot be inferred"] });
+    }
+  }
+
   const deduped = dedupeRawSignals(rawSignals);
-  const coverage = { status: sourceHealth.some((item) => ["blocked", "unverified"].includes(item.status)) ? "partial" as const : "available" as const, coverageAvailable: true };
-  const expressions = mergeExpressions(deduped, [], coverage);
+  const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));
+  const coverageAvailable = sourceHealth.length > 0 && sourceHealth.every((item) => item.status === "available");
+  const coverage = { status: sourceHealth.some((item) => ["blocked", "unverified"].includes(item.status)) ? "partial" as const : sourceHealth.some((item) => item.status !== "available") ? "partial" as const : "available" as const, coverageAvailable };
+  const expressions = mergeExpressions(deduped, previousExpressions, coverage);
   const evidence: Evidence[] = [];
   for (const signal of deduped.filter((item) => item.evidenceStatus !== "failed")) {
     const text = [signal.title, signal.excerpt, signal.body].find((value) => value?.trim())?.trim();
@@ -64,13 +76,13 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
     if (!subjectId || !text) continue;
     evidence.push({ id: `evidence-${signal.id}`, subjectId, claimType: "adoption", rawSignalId: signal.id, quote: text, location: signal.title?.trim() === text ? "title" : "body", capturedAt: signal.fetchedAt, evidenceGrade: signal.evidenceStatus === "verified" ? "direct" : "reported", independentFrom: [signal.sourceType] });
   }
-  const opportunities = expressions.map((expression) => qualifyOpportunity({ signals: deduped, evidence, previous: [], expressionId: expression.id, recommendedArtifact: "tool", coverage }));
-  const store = new RunStore(workspaceRoot, options.date);
-  await store.appendRawSignals(rawSignals);
+  const opportunities = expressions.map((expression) => qualifyOpportunity({ signals: deduped, evidence, previous: previousExpressions, expressionId: expression.id, recommendedArtifact: "tool", coverage }));
+  await store.appendRawSignals(appendable);
   await store.writeProjection("expressions", expressions);
   await store.writeProjection("evidence", evidence);
   await store.writeProjection("opportunities", opportunities);
   await store.writeHistory(opportunities);
+  await store.writeHistoryExpressions(expressions);
   const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: rawSignals, expressions, evidence, opportunities });
   const reportPath = path.join(store.runDirectory, "report.md");
   const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities });

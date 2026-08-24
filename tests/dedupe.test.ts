@@ -132,6 +132,12 @@ describe("dedupeRawSignals", () => {
     expect(current.find((item) => item.normalizedText === "historical")!.lifecycle).toBe("new");
   });
 
+  it("does not fade historical expressions under partial coverage", () => {
+    const previous = mergeExpressions([signal("historical", { title: "Historical", fetchedAt: "2026-08-24T00:00:00.000Z" })], [], { status: "available" })[0]!;
+    const current = mergeExpressions([signal("current", { title: "Current", fetchedAt: "2026-08-25T00:00:00.000Z" })], [{ ...previous, lifecycle: "stable" }], { status: "partial", coverageAvailable: false });
+    expect(current.find((item) => item.normalizedText === "historical")?.lifecycle).toBe("stable");
+  });
+
   it("does not merge raw records when all optional identities are blank", () => {
     const result = dedupeRawSignals([
       signal("blank-a", { sourceFingerprint: "", sourceUrl: "", externalId: "" }),
