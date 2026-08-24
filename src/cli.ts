@@ -1,5 +1,42 @@
-import { runRadar } from "./index.js";
+import { runRadar, type RadarRunOptions } from "./index.js";
 
-const date = process.argv[2] ?? new Date().toISOString().slice(0, 10);
-const result = await runRadar({ date });
-process.stdout.write(result.report);
+export function parseCliArgs(args: string[]): RadarRunOptions {
+  if (args[0] === "--") args = args.slice(1);
+  let date: string | undefined;
+  let sourceNames: string[] | undefined;
+  let inputPath: string | undefined;
+  let workspaceRoot: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index];
+    if (!flag?.startsWith("--")) throw usageError(`unexpected argument ${flag ?? ""}`);
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) throw usageError(`${flag} requires a value`);
+    if (flag === "--date") date = value;
+    else if (flag === "--sources") sourceNames = value.split(",").map((item) => item.trim()).filter(Boolean);
+    else if (flag === "--input") inputPath = value;
+    else if (flag === "--workspace") workspaceRoot = value;
+    else throw usageError(`unknown flag ${flag}`);
+    index += 1;
+  }
+  return { date: date ?? new Date().toISOString().slice(0, 10), ...(sourceNames ? { sourceNames } : {}), ...(inputPath ? { inputPath } : {}), ...(workspaceRoot ? { workspaceRoot } : {}) };
+}
+
+function usageError(message: string): Error {
+  return new Error(`Usage: radar [--date YYYY-MM-DD] [--sources fixtures,manual] [--input path] [--workspace path]: ${message}`);
+}
+
+export async function main(args = process.argv.slice(2)): Promise<number> {
+  try {
+    const result = await runRadar(parseCliArgs(args));
+    process.stdout.write(`${result.paths.report}\n${result.report}`);
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    return /Usage:/.test(message) ? 2 : 1;
+  }
+}
+
+if (process.argv[1]?.endsWith("/src/cli.ts")) {
+  main().then((code) => { process.exitCode = code; });
+}
