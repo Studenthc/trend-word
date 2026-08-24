@@ -160,7 +160,7 @@ function stableAdapter(sourceType: StableSourceType, supplied: SourceAdapter | u
   if (supplied) return supplied;
   if (sourceType === "producthunt" && transports.producthunt) return createProductHuntAdapter(transports.producthunt, { limit: config.producthunt.limit });
   if (sourceType === "github" && transports.github) return createGitHubAdapter(transports.github, { queries: config.github.queries, limit: config.github.limit });
-  if (sourceType === "scys-mcp" && transports["scys-mcp"]) return createScysMcpAdapter(transports["scys-mcp"], { query: config.scys.queries[0] ?? "AI" });
+  if (sourceType === "scys-mcp" && transports["scys-mcp"]) return createScysMcpAdapter(transports["scys-mcp"], { queries: config.scys.queries });
   return undefined;
 }
 

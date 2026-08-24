@@ -13,27 +13,42 @@ export function createGitHubAdapter(transport: HttpTransport, options: GitHubAda
   return {
     name: "github",
     async collect(context): Promise<SourceCollection> {
-      try {
-        const queries = options.queries?.length ? options.queries : [undefined];
-        const signals: RawSignal[] = [];
-        for (const query of queries) {
+      const queries = options.queries?.length ? options.queries : [undefined];
+      const signals: RawSignal[] = [];
+      const failures: string[] = [];
+      const failureStatuses: number[] = [];
+      let successfulQueries = 0;
+      for (const query of queries) {
+        try {
           const baseUrl = options.url ?? "https://api.github.com/search/repositories";
           const params = new URLSearchParams();
           if (query) params.set("q", query);
           if (options.limit) params.set("per_page", String(options.limit));
           const queryString = params.toString();
           const response = await transport({ url: `${baseUrl}${queryString ? `?${queryString}` : ""}`, method: "GET" });
-          if ([401, 403, 404, 429].includes(response.status)) return collection("blocked", context.fetchedAt, [], [`HTTP ${response.status} GitHub rate limit or forbidden`]);
-          if (response.status < 200 || response.status >= 300) return collection("unverified", context.fetchedAt, [], [`HTTP ${response.status} GitHub response`]);
+          if ([401, 403, 404, 429].includes(response.status)) throw Object.assign(new Error(`HTTP ${response.status} GitHub rate limit or forbidden`), { status: response.status });
+          if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status} GitHub response`);
           const payload = JSON.parse(await response.text()) as unknown;
           const repositories = repositoryNodes(payload);
-          if (!repositories) return collection("unverified", context.fetchedAt, [], ["GitHub repository parse failed: missing items"]);
-          signals.push(...repositories.map((repository) => toSignal(repository, context.fetchedAt)));
+          if (!repositories) throw new Error("GitHub repository parse failed: missing items");
+          successfulQueries += 1;
+          for (const repository of repositories) {
+            try {
+              signals.push(toSignal(repository, context.fetchedAt));
+            } catch (error) {
+              failures.push(`GitHub query ${query ?? "default"} item failed: ${message(error)}`);
+            }
+          }
+        } catch (error) {
+          const status = errorStatus(error);
+          if (status !== undefined) failureStatuses.push(status);
+          failures.push(`GitHub query ${query ?? "default"} failed: ${message(error)}`);
         }
-        return collection(signals.length === 0 ? "empty" : "available", context.fetchedAt, signals);
-      } catch (error) {
-        return collection("unverified", context.fetchedAt, [], [`GitHub JSON parse failed: ${message(error)}`]);
       }
+      if (signals.length > 0) return collection(failures.length > 0 ? "partial" : "available", context.fetchedAt, signals, failures);
+      if (failures.length > 0 && successfulQueries > 0) return collection("partial", context.fetchedAt, [], failures);
+      if (failures.length > 0) return collection(failureStatuses.some((status) => [401, 403, 404, 429].includes(status)) ? "blocked" : "unverified", context.fetchedAt, [], failures);
+      return collection("empty", context.fetchedAt, []);
     },
   };
 }
@@ -67,3 +82,4 @@ function record(value: unknown): value is Record<string, unknown> { return typeo
 function text(value: Record<string, unknown>, key: string): string | undefined { return typeof value[key] === "string" && value[key].trim() ? value[key].trim() : undefined; }
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function errorStatus(error: unknown): number | undefined { return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : undefined; }

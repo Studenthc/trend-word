@@ -121,11 +121,15 @@ describe("daily radar report", () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-injected-sources-"));
     const httpResponse = (body: unknown): Awaited<ReturnType<ProductHuntTransport>> => ({ status: 200, headers: new Headers(), text: async () => JSON.stringify(body) });
     const producthunt: ProductHuntTransport = async () => httpResponse({ posts: [] });
-    const github: GitHubTransport = async () => httpResponse({ items: [] });
-    const scys: McpTransport = async () => ({ items: [] });
+    const githubQueries: string[] = [];
+    const github: GitHubTransport = async (request) => { const query = new URL(request.url).searchParams.get("q"); if (query) githubQueries.push(query); return httpResponse({ items: [] }); };
+    const scysQueries: string[] = [];
+    const scys: McpTransport = async (request) => { if (request.method === "content-search") scysQueries.push(String(request.params?.query)); return { items: [] }; };
     const result = await runRadar({ date: "2026-08-24", sourceNames: ["producthunt", "github", "scys-mcp"], workspaceRoot, transports: { producthunt, github, "scys-mcp": scys } });
     expect(result.summary.sourceHealth?.map((item) => item.status)).toEqual(["empty", "empty", "empty"]);
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "scys-mcp"]);
+    expect(githubQueries).toEqual(["ai tool", "mcp", "agent"]);
+    expect(scysQueries).toEqual(["AI", "出海", "风向标"]);
   });
 
   it("keeps Task 9 sources explicit when requested", async () => {

@@ -41,4 +41,14 @@ describe("GitHub adapter", () => {
     const result = await createGitHubAdapter(async () => response({}, status)).collect(context);
     expect(result.health.status).toBe("blocked");
   });
+
+  it("keeps successful query signals when a later query is rate limited", async () => {
+    const result = await createGitHubAdapter(async (request) => {
+      if (new URL(request.url).searchParams.get("q") === "failed") return response({}, 429);
+      return response({ items: [{ full_name: "acme/success", html_url: "https://github.com/acme/success", owner: { login: "acme" }, description: "Success" }] });
+    }, { queries: ["success", "failed"] }).collect(context);
+    expect(result.signals.map((signal) => signal.externalId)).toEqual(["acme/success"]);
+    expect(result.health.status).toBe("partial");
+    expect(result.health.failureReasons.join(" ")).toMatch(/429|rate/i);
+  });
 });

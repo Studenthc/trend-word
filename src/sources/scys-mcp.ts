@@ -2,37 +2,50 @@ import { parseRawSignal, parseSourceHealth, type RawSignal, type SourceAdapter, 
 
 export type McpTransport = (request: { method: string; params?: Record<string, unknown> }) => Promise<unknown>;
 
-export type ScysMcpAdapterOptions = { query?: string };
+export type ScysMcpAdapterOptions = { query?: string; queries?: string[] };
 
 export function createScysMcpAdapter(transport: McpTransport, options: ScysMcpAdapterOptions = {}): SourceAdapter {
   return {
     name: "scys-mcp",
     async collect(context): Promise<SourceCollection> {
-      try {
-        const search = await transport({ method: "content-search", params: { query: options.query ?? "AI" } });
-        const items = searchItems(search);
-        if (!items) return collection("unverified", context.fetchedAt, [], ["SCYS MCP content-search parse failed"]);
-        if (items.length === 0) return collection("empty", context.fetchedAt, []);
-        const signals: RawSignal[] = [];
-        const warnings: string[] = [];
-        for (const item of items) {
-          try {
-            const detail = hasText(item, "title") || hasText(item, "body") ? item : await transport({ method: "topic-detail", params: { id: text(item, "id") } });
-            signals.push(toSignal(detail, context.fetchedAt));
-          } catch (error) {
-            warnings.push(`topic detail failed: ${message(error)}`);
+      const queries = options.queries?.length ? options.queries : [options.query ?? "AI"];
+      const signalsById = new Map<string, RawSignal>();
+      const failures: string[] = [];
+      const failureStatuses: number[] = [];
+      let successfulQueries = 0;
+      for (const query of queries) {
+        try {
+          const search = await transport({ method: "content-search", params: { query } });
+          const status = responseStatus(search);
+          if (status !== undefined && status >= 400) throw Object.assign(new Error(`HTTP ${status}`), { status });
+          const items = searchItems(search);
+          if (!items) throw new Error("content-search parse failed");
+          successfulQueries += 1;
+          for (const item of items) {
+            try {
+              const detail = hasText(item, "title") || hasText(item, "body") ? item : await transport({ method: "topic-detail", params: { id: text(item, "id") } });
+              const signal = toSignal(detail, context.fetchedAt);
+              signalsById.set(signal.id, signal);
+            } catch (error) {
+              failures.push(`topic detail failed for ${query}: ${message(error)}`);
+            }
           }
+        } catch (error) {
+          const status = errorStatus(error);
+          if (status !== undefined) failureStatuses.push(status);
+          failures.push(`SCYS query ${query} failed: ${message(error)}`);
         }
-        const signalWarnings = signals.flatMap((signal) => [
-          ...(signal.permission === "restricted" ? ["permission restricted"] : []),
-          ...(signal.syncWarnings ?? []),
-        ]);
-        const allWarnings = [...warnings, ...signalWarnings];
-        return collection(signals.length === 0 ? "unverified" : allWarnings.length > 0 ? "partial" : "available", context.fetchedAt, signals, warnings, allWarnings.length > 0 ? [`SCYS permission or sync warnings: ${allWarnings.join("; ")}`] : []);
-      } catch (error) {
-        const status = errorStatus(error);
-        return collection(status !== undefined && [401, 403, 404, 429].includes(status) ? "blocked" : "unverified", context.fetchedAt, [], [`SCYS MCP${status ? ` HTTP ${status}` : ""} failed: ${message(error)}`]);
       }
+      const signals = [...signalsById.values()];
+      const signalWarnings = signals.flatMap((signal) => [
+        ...(signal.permission === "restricted" ? ["permission restricted"] : []),
+        ...(signal.syncWarnings ?? []),
+      ]);
+      const allWarnings = [...failures, ...signalWarnings];
+      if (signals.length > 0) return collection(allWarnings.length > 0 ? "partial" : "available", context.fetchedAt, signals, failures, allWarnings.length > 0 ? [`SCYS permission or sync warnings: ${allWarnings.join("; ")}`] : []);
+      if (failures.length > 0 && successfulQueries > 0) return collection("partial", context.fetchedAt, [], failures);
+      if (failures.length > 0) return collection(failureStatuses.some((status) => [401, 403, 404, 429].includes(status)) ? "blocked" : "unverified", context.fetchedAt, [], failures);
+      return collection("empty", context.fetchedAt, []);
     },
   };
 }
@@ -82,3 +95,4 @@ function number(value: unknown): number | undefined { return typeof value === "n
 function arrayOfText(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : []; }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function errorStatus(error: unknown): number | undefined { return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : undefined; }
+function responseStatus(value: unknown): number | undefined { return record(value) && typeof value.status === "number" ? value.status : undefined; }

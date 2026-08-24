@@ -41,4 +41,18 @@ describe("SCYS MCP adapter", () => {
     expect(result.health.status).toBe("unverified");
     expect(result.health.failureReasons.join(" ")).toMatch(/malformed|parse/i);
   });
+
+  it("runs every configured query and keeps successful results when one query fails", async () => {
+    const queries: string[] = [];
+    const result = await createScysMcpAdapter(async (request) => {
+      const query = String(request.params?.query);
+      if (request.method === "content-search") queries.push(query);
+      if (query === "failed") throw Object.assign(new Error("rate limited"), { status: 429 });
+      return { items: [{ id: `content-${query}`, title: `Title ${query}`, body: `Body ${query}`, author: "Author" }] };
+    }, { queries: ["first", "failed", "third"] }).collect(context);
+    expect(queries).toEqual(["first", "failed", "third"]);
+    expect(result.signals.map((signal) => signal.externalId)).toEqual(["content-first", "content-third"]);
+    expect(result.health.status).toBe("partial");
+    expect(result.health.failureReasons.join(" ")).toMatch(/rate limited/);
+  });
 });
