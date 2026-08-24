@@ -26,6 +26,7 @@ describe("deriveLifecycle", () => {
     const current = { ...previous, occurrences: [], lastSeenAt: "2026-08-25T00:00:00.000Z" };
     expect(deriveLifecycle(current, previous, { status: "failed" })).toBe("stable");
     expect(deriveLifecycle(current, previous, { status: "partial", coverageAvailable: false })).toBe("stable");
+    expect(deriveLifecycle({ ...current, occurrences: [current.occurrences[0]!] }, previous, { status: "failed" })).toBe("stable");
   });
 
   it("compares instants canonically and ignores invalid dates for trend changes", () => {

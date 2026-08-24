@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RawSignal } from "../src/types.js";
 import { dedupeRawSignals, mergeExpressions } from "../src/domain/dedupe.js";
+import { expressionId } from "../src/domain/normalize.js";
 
 function signal(id: string, changes: Partial<RawSignal> = {}): RawSignal {
   return {
@@ -35,6 +36,7 @@ describe("dedupeRawSignals", () => {
       signal("two", { author: { name: "B" }, community: "Creators", sourceFingerprint: "same-content", sourceUrl: "https://example.com/two" }),
       signal("three", { sourceName: "GitHub", sourceType: "github", sourceFingerprint: "same-content", sourceUrl: "https://github.com/x", author: { name: "C" }, community: "Developers" }),
     ];
+    expect(dedupeRawSignals(signals)).toHaveLength(3);
     expect(signals[0]!.author?.name).toBe("A");
     const expressions = mergeExpressions(signals, []);
     const expression = expressions[0]!;
@@ -67,5 +69,31 @@ describe("dedupeRawSignals", () => {
       signal("github", { sourceType: "github", sourceName: "GitHub", sourceUrl: "https://shared.example/item", externalId: "shared" }),
     ]);
     expect(result.map((item) => item.id)).toEqual(["product", "github"]);
+  });
+
+  it("uses canonical ids and propagates failed coverage to lifecycle", () => {
+    const previous = mergeExpressions([signal("old-1"), signal("old-2", { sourceUrl: "https://example.com/old-2" })], [])[0]!;
+    const prior = { ...previous, id: "legacy-id", lifecycle: "stable" as const, lastSeenAt: "2026-08-24T00:00:00.000Z" };
+    const current = mergeExpressions([signal("new-1", { fetchedAt: "2026-08-25T00:00:00.000Z" })], [prior], { status: "failed" })[0]!;
+    expect(current.id).toBe(expressionId("ai 工作流"));
+    expect(current.lifecycle).toBe("stable");
+  });
+
+  it("canonicalizes valid signal timestamps and ignores unusable text", () => {
+    const current = mergeExpressions([
+      signal("offset", { title: "  ", excerpt: "  AI 工作流  ", publishedAt: "2026-08-24T08:00:00+08:00", fetchedAt: "2026-08-24T00:00:00Z" }),
+      signal("blank", { title: " ", excerpt: "", body: "\t", sourceUrl: "https://example.com/blank" }),
+    ], []);
+    expect(current).toHaveLength(1);
+    expect(current[0]!.firstSeenAt).toBe("2026-08-24T00:00:00.000Z");
+    expect(current[0]!.lastSeenAt).toBe("2026-08-24T00:00:00.000Z");
+  });
+
+  it("deduplicates stable author ids when names vary across independent records", () => {
+    const current = mergeExpressions([
+      signal("a", { author: { id: "author-1", name: "Alice" }, sourceFingerprint: "one" }),
+      signal("b", { author: { id: "author-1", name: "Alice Chen" }, sourceFingerprint: "two", sourceUrl: "https://example.com/b" }),
+    ], [])[0]!;
+    expect(current.independentAuthors).toBe(1);
   });
 });

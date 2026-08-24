@@ -20,7 +20,9 @@ export function directEvidenceFor(subjectId: string): Evidence {
 
 describe("qualifyOpportunity", () => {
   it("does not qualify a product-name signal from one publisher", () => {
-    const result = qualifyOpportunity({ signals: [productHuntSignalFixture()], evidence: [directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!)], previous: [] });
+    const signal = productHuntSignalFixture();
+    const duplicate = { ...signal, id: "duplicate", author: { name: "Another author" } };
+    const result = qualifyOpportunity({ signals: [signal, duplicate], evidence: [directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!)], previous: [] });
     expect(result.status).toBe("watch");
     expect(result.validation.demand).toBe("single_signal");
   });
@@ -65,5 +67,32 @@ describe("qualifyOpportunity", () => {
     const risk = { ...directEvidenceFor(subjectId), id: "risk", claimType: "risk" as const, quote: "medical service" };
     const result = qualifyOpportunity({ signals: [signal], evidence: [risk], previous: [], riskFlags: [] });
     expect(result.status).toBe("rejected");
+  });
+
+  it("qualifies the explicitly selected expression instead of the first expression", () => {
+    const first = productHuntSignalFixture();
+    const second = { ...first, id: "second", title: "Creator Billing", sourceUrl: "https://producthunt.com/posts/creator-billing", externalId: "ph-2" };
+    const selectedId = expressionId(normalizeExpression(second.title).normalized)!;
+    const evidence = [
+      { ...directEvidenceFor(selectedId), id: "demand", claimType: "adoption" as const, rawSignalId: second.id },
+      { ...directEvidenceFor(selectedId), id: "supply", claimType: "serp_competition" as const, rawSignalId: second.id },
+      { ...directEvidenceFor(selectedId), id: "delivery", claimType: "delivery" as const, rawSignalId: second.id },
+    ];
+    const result = qualifyOpportunity({ signals: [first, second], evidence, previous: [], expressionId: selectedId, audience: "creators", recommendedArtifact: "tool", delivery: "possible" });
+    expect(result.primaryExpressionId).toBe(selectedId);
+    expect(result.evidenceIds).toEqual(evidence.map((item) => item.id));
+  });
+
+  it("does not qualify an ambiguous multi-expression input without a selected id", () => {
+    expect(() => qualifyOpportunity({ signals: [productHuntSignalFixture(), { ...productHuntSignalFixture(), id: "other", title: "Other Product", externalId: "ph-other", sourceUrl: "https://example.com/other" }], evidence: [], previous: [] })).toThrow(/expression id/i);
+  });
+
+  it("blocks actionable status when delivery is explicitly blocked", () => {
+    const signal = productHuntSignalFixture();
+    const id = expressionId(normalizeExpression(signal.title ?? "").normalized)!;
+    const result = qualifyOpportunity({ signals: [signal, { ...signal, id: "github", sourceType: "github", sourceName: "GitHub", sourceUrl: "https://github.com/example" }], evidence: [directEvidenceFor(id)], previous: [], expressionId: id, competition: "mixed", delivery: "blocked", commercialEvidence: true, audience: "creators", recommendedArtifact: "tool" });
+    expect(result.status).toBe("watch");
+    expect(result.validation.delivery).toBe("blocked");
+    expect(result.validation.missingChecks).toContain("delivery or commercial evidence");
   });
 });

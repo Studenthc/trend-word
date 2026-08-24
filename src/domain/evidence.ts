@@ -19,6 +19,11 @@ export function validateEvidence(input: EvidenceValidationInput): EvidenceValida
       reason ??= `missing raw signal ${item.rawSignalId}`;
       continue;
     }
+    const rawSignal = input.rawSignals.find((signal) => signal.id === item.rawSignalId);
+    if (rawSignal?.evidenceStatus === "failed") {
+      reason ??= `failed raw signal ${item.rawSignalId}`;
+      continue;
+    }
     if (input.expectedSubjectId !== undefined && item.subjectId !== input.expectedSubjectId) {
       reason ??= `evidence ${id} has unexpected subject`;
       continue;

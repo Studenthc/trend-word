@@ -32,4 +32,12 @@ describe("validateEvidence", () => {
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("subject");
   });
+
+  it("rejects evidence whose cited raw signal failed collection", () => {
+    const result = validateEvidence({
+      evidenceIds: ["evidence-1"], evidence: [evidence], rawSignals: [{ ...rawSignal, evidenceStatus: "failed" }],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("failed raw signal");
+  });
 });
