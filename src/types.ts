@@ -180,8 +180,14 @@ export const sourceHealthSchema = z.object({
 export type SourceHealth = z.infer<typeof sourceHealthSchema>;
 export const parseSourceHealth = (value: unknown): SourceHealth => sourceHealthSchema.parse(value);
 
+export const canonicalDateSchema = z.string().refine((value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, "Expected a valid YYYY-MM-DD calendar date");
+
 export const runSummarySchema = z.object({
-  date: z.string(),
+  date: canonicalDateSchema,
   sourcesAttempted: z.array(z.string()),
   sourcesSucceeded: z.array(z.string()).optional(),
   sourceHealth: z.array(sourceHealthSchema).optional(),

@@ -155,6 +155,14 @@ describe("RunStore", () => {
     expect(await store.readProjection<RunSummary>("run-summary")).toEqual(runSummary());
   });
 
+  it("rejects non-canonical and impossible run-summary dates", async () => {
+    const store = await createTempRunStore();
+
+    for (const date of ["not-a-date", "2026-02-30", "2026-8-24"]) {
+      await expect(store.writeProjection("run-summary", { ...runSummary(), date })).rejects.toThrow();
+    }
+  });
+
   it("writes and reads validated opportunity history", async () => {
     const store = await createTempRunStore();
     const records = [opportunity("history")];
