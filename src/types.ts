@@ -200,6 +200,8 @@ export const runSummarySchema = z.object({
   failedSources: z.array(z.string()).optional(),
   partialSources: z.array(z.string()).optional(),
   warningCount: z.number().int().nonnegative().optional(),
+  runStatus: z.enum(["complete", "failed"]).optional(),
+  failureReason: z.string().optional(),
   reportPath: z.string().optional(),
 }).strict();
 

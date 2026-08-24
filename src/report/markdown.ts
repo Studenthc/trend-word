@@ -21,7 +21,7 @@ export function renderMarkdownReport(input: MarkdownReportInput): string {
   for (const opportunity of input.opportunities.filter((item) => item.riskFlags.length > 0)) lines.push(`- ${opportunity.title}: ${opportunity.riskFlags.join("；")}`);
   lines.push("", "## 原文证据", "");
   for (const item of input.evidence) lines.push(`- ${item.claimType}: “${item.quote}”（${item.location}，${item.evidenceGrade}）`);
-  lines.push("", "## 覆盖范围", "", `- 来源：${input.summary.sourcesAttempted.join("、")}`, `- raw signals：${input.summary.signalCount ?? input.signals.length}`, `- expressions：${input.summary.expressionCount ?? input.expressions.length}`, `- evidence：${input.summary.evidenceCount ?? input.evidence.length}`);
+  lines.push("", "## 覆盖范围", "", `- 来源：${input.sourceHealth.map((item) => `${item.sourceType}（${item.status}）`).join("、") || "无"}`, `- 请求来源：${input.summary.sourcesAttempted.join("、")}`, `- raw signals：${input.summary.signalCount ?? input.signals.length}`, `- expressions：${input.summary.expressionCount ?? input.expressions.length}`, `- evidence：${input.summary.evidenceCount ?? input.evidence.length}`);
   return `${lines.join("\n")}\n`;
 }
 

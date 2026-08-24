@@ -8,7 +8,7 @@ import { summarizeRun } from "./report/summary.js";
 import { loadFixtureSignals } from "./sources/fixtures.js";
 import { importManualSignals } from "./sources/manual.js";
 import { RunStore } from "./storage/run-store.js";
-import { parseSourceHealth, type Evidence, type RawSignal, type SourceHealth } from "./types.js";
+import { parseSourceHealth, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceHealth } from "./types.js";
 
 export type RadarRunOptions = {
   date: string;
@@ -24,11 +24,43 @@ export type RadarRunResult = {
 };
 
 export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult> {
+  try {
+    return await runRadarInternal(options);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    try {
+      const store = new RunStore(options.workspaceRoot ?? process.cwd(), options.date);
+      const existingSummary = await store.readProjection<RunSummary>("run-summary");
+      const failedSummary: RunSummary = {
+        ...(existingSummary ?? {}),
+        date: options.date,
+        sourcesAttempted: options.sourceNames ?? ["fixtures"],
+        sourceHealth: existingSummary?.sourceHealth ?? [],
+        signalCount: existingSummary?.signalCount ?? 0,
+        expressionCount: existingSummary?.expressionCount ?? 0,
+        evidenceCount: existingSummary?.evidenceCount ?? 0,
+        opportunityCount: existingSummary?.opportunityCount ?? 0,
+        failedSources: existingSummary?.failedSources ?? [],
+        partialSources: existingSummary?.partialSources ?? [],
+        warningCount: existingSummary?.warningCount ?? 0,
+        runStatus: "failed",
+        failureReason: reason,
+      };
+      await store.writeProjection("run-summary", failedSummary);
+    } catch {
+      // Finalization is best effort; preserve and rethrow the original failure.
+    }
+    throw error;
+  }
+}
+
+async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResult> {
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const sourceNames = options.sourceNames ?? ["fixtures"];
   const attemptedAt = new Date(`${options.date}T00:00:00.000Z`).toISOString();
   const store = new RunStore(workspaceRoot, options.date);
   const previousExpressions = await store.readHistoryExpressions();
+  const previousOpportunities = await store.readHistory<Opportunity[]>() ?? [];
   const existingRawSignals = await store.readRawSignals();
   let rawSignals: RawSignal[] = [];
   const sourceHealth: SourceHealth[] = [];
@@ -81,7 +113,9 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
   await store.writeProjection("expressions", expressions);
   await store.writeProjection("evidence", evidence);
   await store.writeProjection("opportunities", opportunities);
-  await store.writeHistory(opportunities);
+  const historyById = new Map(previousOpportunities.map((item) => [item.id, item]));
+  for (const opportunity of opportunities) historyById.set(opportunity.id, opportunity);
+  await store.writeHistory([...historyById.values()]);
   await store.writeHistoryExpressions(expressions);
   const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: rawSignals, expressions, evidence, opportunities });
   const reportPath = path.join(store.runDirectory, "report.md");

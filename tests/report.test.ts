@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -51,17 +51,21 @@ describe("daily radar report", () => {
     expect(summary.evidenceGradeCounts?.direct).toBe(1);
     expect(summary.evidenceGradeCounts?.inferred).toBe(1);
     expect(summary.candidateStatusCounts?.actionable).toBe(1);
-    expect(summary.failedSources).toContain("reddit-feed");
+    expect(summary.failedSources).not.toContain("reddit-feed");
     expect(summary.partialSources).toContain("reddit-feed");
+    expect(summary.warningCount).toBe(1);
+    expect(summary.sourcesSucceeded).toEqual(["fixtures"]);
   });
 
   it("runs fixture corpus, groups source health, and persists all daily artifacts", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-report-"));
     const result = await runRadar({ date: "2026-08-24", sourceNames: ["fixtures"], workspaceRoot });
     expect(result.summary.date).toBe("2026-08-24");
+    expect(result.summary.runStatus).toBe("complete");
     expect(result.summary.sourcesAttempted).toEqual(["fixtures"]);
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(expect.arrayContaining(["scys-mcp", "producthunt", "github", "x-timeline", "reddit-feed"]));
     expect(result.report).toContain("## 来源健康");
+    expect(result.report).toContain("scys-mcp: available");
     expect(result.paths.report).toContain("data/runs/2026-08-24");
     for (const file of ["raw-signals.jsonl", "expressions.json", "evidence.json", "opportunities.json", "run-summary.json", "report.md"]) {
       await expect(readFile(path.join(workspaceRoot, "data", "runs", "2026-08-24", file), "utf8")).resolves.toBeTruthy();
@@ -116,5 +120,25 @@ describe("daily radar report", () => {
     await writeFile(inputPath, `${JSON.stringify({ id: "failed", sourceUrl: "https://example.com/failed", title: "failed", sourceType: "manual", fetchedAt: "2026-08-24T00:00:00.000Z", evidenceStatus: "failed", failureReason: "HTTP 429" })}\n`);
     const result = await runRadar({ date: "2026-08-24", sourceNames: ["manual"], inputPath, workspaceRoot });
     expect(result.summary.sourceHealth?.find((item) => item.sourceType === "manual")?.status).toBe("unverified");
+  });
+
+  it("merges opportunity history across run dates without dropping old records", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-history-"));
+    await runRadar({ date: "2026-08-24", sourceNames: ["fixtures"], workspaceRoot });
+    const inputPath = path.join(workspaceRoot, "manual.jsonl");
+    await writeFile(inputPath, `${JSON.stringify({ id: "manual-new", sourceUrl: "https://example.com/manual-new", sourceType: "manual", title: "Manual opportunity", fetchedAt: "2026-08-25T00:00:00.000Z" })}\n`);
+    await runRadar({ date: "2026-08-25", sourceNames: ["manual"], inputPath, workspaceRoot });
+    const history = JSON.parse(await readFile(path.join(workspaceRoot, "data/history/opportunities.json"), "utf8")) as Array<{ id: string }>;
+    expect(history.some((item) => item.id === "opportunity-scys-wind-marker-1")).toBe(true);
+    expect(history.some((item) => item.id === "opportunity-manual-new")).toBe(true);
+  });
+
+  it("finalizes a failed run summary when persistence fails", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-finalization-"));
+    await mkdir(path.join(workspaceRoot, "data/history/opportunities.json"), { recursive: true });
+    await expect(runRadar({ date: "2026-08-24", sourceNames: ["fixtures"], workspaceRoot })).rejects.toThrow();
+    const summary = JSON.parse(await readFile(path.join(workspaceRoot, "data/runs/2026-08-24/run-summary.json"), "utf8")) as { runStatus: string; failureReason?: string };
+    expect(summary.runStatus).toBe("failed");
+    expect(summary.failureReason).toBeTruthy();
   });
 });
