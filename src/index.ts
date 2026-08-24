@@ -10,16 +10,22 @@ import { createGitHubAdapter, type HttpTransport as GitHubHttpTransport } from "
 import { importManualSignals } from "./sources/manual.js";
 import { createProductHuntAdapter, type HttpTransport as ProductHuntHttpTransport } from "./sources/producthunt.js";
 import { createScysMcpAdapter, type McpTransport } from "./sources/scys-mcp.js";
+import { createXTimelineAdapter, type HttpTransport as XTimelineHttpTransport } from "./sources/x-timeline.js";
+import { createRedditFeedAdapter, type HttpTransport as RedditHttpTransport } from "./sources/reddit-feed.js";
 import { runSafeSource } from "./sources/source.js";
 import { loadConfig } from "./config.js";
 import { RunStore } from "./storage/run-store.js";
 import { parseSourceHealth, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceType } from "./types.js";
 
-type StableSourceType = "scys-mcp" | "producthunt" | "github";
+type StableSourceType = "scys-mcp" | "producthunt" | "github" | "x-timeline" | "reddit-feed";
 export type InjectedSourceTransports = {
   "scys-mcp"?: McpTransport;
   producthunt?: ProductHuntHttpTransport;
   github?: GitHubHttpTransport;
+  "x-timeline"?: XTimelineHttpTransport;
+  "reddit-feed"?: RedditHttpTransport;
+  xTimeline?: XTimelineHttpTransport;
+  redditFeed?: RedditHttpTransport;
 };
 
 export type RadarRunOptions = {
@@ -109,7 +115,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
 
   const injectedTransports = options.transports ?? options.injectedTransports ?? {};
   for (const sourceName of sourceNames) {
-    if (!(sourceName === "scys-mcp" || sourceName === "producthunt" || sourceName === "github") || sourceHealth.some((item) => item.sourceType === sourceName)) continue;
+    if (!(sourceName === "scys-mcp" || sourceName === "producthunt" || sourceName === "github" || sourceName === "x-timeline" || sourceName === "reddit-feed") || sourceHealth.some((item) => item.sourceType === sourceName)) continue;
     const adapter = stableAdapter(sourceName, options.adapters?.[sourceName], injectedTransports, config);
     if (!adapter) {
       sourceHealth.push({ sourceType: sourceName, status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["no injected transport configured"], coverageNotes: ["source coverage unavailable; no implicit network request made"] });
@@ -161,6 +167,10 @@ function stableAdapter(sourceType: StableSourceType, supplied: SourceAdapter | u
   if (sourceType === "producthunt" && transports.producthunt) return createProductHuntAdapter(transports.producthunt, { limit: config.producthunt.limit });
   if (sourceType === "github" && transports.github) return createGitHubAdapter(transports.github, { queries: config.github.queries, limit: config.github.limit });
   if (sourceType === "scys-mcp" && transports["scys-mcp"]) return createScysMcpAdapter(transports["scys-mcp"], { queries: config.scys.queries });
+  const xTransport = transports["x-timeline"] ?? transports.xTimeline;
+  if (sourceType === "x-timeline" && xTransport) return createXTimelineAdapter(xTransport, { handles: config.xTimeline.handles });
+  const redditTransport = transports["reddit-feed"] ?? transports.redditFeed;
+  if (sourceType === "reddit-feed" && redditTransport) return createRedditFeedAdapter(redditTransport, { communities: config.redditFeed.communities });
   return undefined;
 }
 

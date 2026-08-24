@@ -137,6 +137,17 @@ describe("daily radar report", () => {
     expect(result.summary.sourceHealth?.find((item) => item.sourceType === "x-timeline")).toMatchObject({ status: "unverified" });
   });
 
+  it("runs injected X and Reddit sources with configured endpoints", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-social-registry-"));
+    await writeFile(path.join(workspaceRoot, "radar.config.json"), JSON.stringify({ xTimeline: { enabled: true, handles: ["alice"] }, redditFeed: { enabled: true, communities: ["AI"] } }));
+    const xUrls: string[] = [];
+    const redditUrls: string[] = [];
+    const result = await runRadar({ date: "2026-08-25", sourceNames: ["x-timeline", "reddit-feed"], workspaceRoot, transports: { xTimeline: async (request) => { xUrls.push(request.url); return { status: 200, headers: new Headers(), text: async () => JSON.stringify({ data: [] }) }; }, redditFeed: async (request) => { redditUrls.push(request.url); return { status: 200, headers: new Headers(), text: async () => JSON.stringify({ data: { children: [] } }) }; } } });
+    expect(xUrls).toEqual(["https://api.x.example/timeline/alice/tweets"]);
+    expect(redditUrls).toEqual(["https://www.reddit.example/r/AI/new.json"]);
+    expect(result.summary.sourceHealth?.map((item) => item.status)).toEqual(["empty", "empty"]);
+  });
+
   it("keeps summary signal counts aligned with deduped persisted records", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-query-dedupe-"));
     const response = { status: 200, headers: new Headers(), text: async () => JSON.stringify({ items: [{ full_name: "acme/repeated", html_url: "https://github.com/acme/repeated", owner: { login: "acme" }, description: "Repeated" }] }) };
