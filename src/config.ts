@@ -1,38 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { access } from "node:fs/promises";
 import path from "node:path";
-import { z } from "zod";
-
-const sourceTypeSchema = z.enum([
-  "scys-mcp",
-  "producthunt",
-  "github",
-  "x-timeline",
-  "reddit-feed",
-  "google-trends",
-  "manual",
-  "fixtures",
-]);
-
-const sourceHealthStatusSchema = z.enum(["available", "partial", "blocked", "empty", "unverified"]);
-
-const configSchema = z.object({
-  sources: z.object({
-    required: z.array(sourceTypeSchema),
-    bestEffort: z.array(sourceTypeSchema),
-    manual: z.boolean(),
-  }),
-  scys: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }),
-  producthunt: z.object({ enabled: z.boolean(), limit: z.number().int().positive() }),
-  github: z.object({ enabled: z.boolean(), queries: z.array(z.string()), limit: z.number().int().positive() }),
-  xTimeline: z.object({ enabled: z.boolean(), handles: z.array(z.string()) }),
-  redditFeed: z.object({ enabled: z.boolean(), communities: z.array(z.string()) }),
-  googleTrends: z.object({ mode: z.literal("manual-or-optional"), region: z.string() }),
-  report: z.object({ maxActionable: z.number().int().nonnegative(), maxWatch: z.number().int().nonnegative() }),
-  sourceHealthStatus: sourceHealthStatusSchema.optional(),
-});
-
-export type RadarConfig = z.infer<typeof configSchema>;
+import { radarConfigSchema, type RadarConfig } from "./types.js";
 
 export type LoadConfigOptions = {
   workspaceRoot: string;
@@ -71,16 +39,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function readOptionalJson(filePath: string): Promise<unknown> {
   try {
-    await access(filePath);
+    return JSON.parse(await readFile(filePath, "utf8")) as unknown;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw error;
   }
-  return JSON.parse(await readFile(filePath, "utf8")) as unknown;
 }
 
 export async function loadConfig(options: LoadConfigOptions): Promise<RadarConfig> {
   const filePath = options.configPath ?? path.join(options.workspaceRoot, "radar.config.json");
   const fileConfig = await readOptionalJson(filePath);
-  return configSchema.parse(mergeConfig(mergeConfig(defaults, fileConfig), options.overrides ?? {}));
+  return radarConfigSchema.parse(mergeConfig(mergeConfig(defaults, fileConfig), options.overrides ?? {}));
 }
