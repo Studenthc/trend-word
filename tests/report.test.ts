@@ -128,6 +128,11 @@ describe("daily radar report", () => {
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "scys-mcp"]);
   });
 
+  it("keeps Task 9 sources explicit when requested", async () => {
+    const result = await runRadar({ date: "2026-08-24", sourceNames: ["x-timeline"] });
+    expect(result.summary.sourceHealth?.find((item) => item.sourceType === "x-timeline")).toMatchObject({ status: "unverified" });
+  });
+
   it("marks a manual failed signal as unavailable coverage", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-manual-failed-"));
     const inputPath = path.join(workspaceRoot, "failed.jsonl");

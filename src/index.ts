@@ -119,6 +119,11 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
     rawSignals.push(...collection.signals);
     sourceHealth.push(collection.health);
   }
+  for (const sourceName of sourceNames) {
+    if ((sourceName === "x-timeline" || sourceName === "reddit-feed") && !sourceHealth.some((item) => item.sourceType === sourceName)) {
+      sourceHealth.push({ sourceType: sourceName, status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["source adapter is not enabled in this task"], coverageNotes: ["source coverage unavailable; no implicit network request made"] });
+    }
+  }
 
   const deduped = dedupeRawSignals(rawSignals);
   const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));
