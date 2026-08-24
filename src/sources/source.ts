@@ -78,6 +78,8 @@ function validateCollection(sourceType: SourceType, result: unknown): SourceColl
     throw new Error(`invalid source health: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (health.sourceType !== sourceType) throw new Error(`sourceType mismatch: expected ${sourceType}, received ${health.sourceType}`);
+  const mismatchedSignal = signals.find((signal) => signal.sourceType !== sourceType);
+  if (mismatchedSignal) throw new Error(`signal sourceType mismatch: expected ${sourceType}, received ${mismatchedSignal.sourceType} for ${mismatchedSignal.id}`);
   if (health.itemCount !== signals.length) throw new Error(`invalid source health: itemCount ${health.itemCount} does not match signals ${signals.length}`);
   if (health.endpointCount !== undefined && health.successfulEndpointCount !== undefined && health.successfulEndpointCount > health.endpointCount) {
     throw new Error("invalid source health: successfulEndpointCount exceeds endpointCount");

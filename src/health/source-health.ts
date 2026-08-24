@@ -51,7 +51,7 @@ export function failureHealth(sourceType: SourceType, classified: ClassifiedSour
     attemptedAt,
     itemCount: 0,
     failureReasons: [`${classified.category}: ${classified.message}`],
-    coverageNotes: [`${classified.category}; source coverage unavailable; no new words cannot be inferred`],
+    coverageNotes: [`${classified.category}: ${classified.message}; source coverage unavailable; no new words cannot be inferred`],
   };
 }
 

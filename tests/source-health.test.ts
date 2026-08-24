@@ -27,9 +27,9 @@ function health(sourceType: SourceHealth["sourceType"], overrides: Partial<Sourc
   };
 }
 
-function signal(id: string): RawSignal {
+function signal(id: string, sourceType: RawSignal["sourceType"] = "fixtures"): RawSignal {
   return {
-    id, sourceType: "fixtures", sourceName: "Fixture", sourceUrl: `https://example.com/${id}`,
+    id, sourceType, sourceName: "Fixture", sourceUrl: `https://example.com/${id}`,
     title: id, fetchedAt: "2026-08-24T00:00:00.000Z", sourceTier: "first_party",
     sourceFingerprint: id, evidenceStatus: "verified",
   };
@@ -59,7 +59,7 @@ describe("runSafeSource", () => {
   });
 
   it("preserves partial multi-endpoint health and coverage notes", async () => {
-    const result = await runSafeSource("reddit-feed", async () => collection("reddit-feed", [signal("one")], {
+    const result = await runSafeSource("reddit-feed", async () => collection("reddit-feed", [signal("one", "reddit-feed")], {
       status: "partial", endpointCount: 2, successfulEndpointCount: 1, coverageNotes: ["community B returned 403"],
     }));
     expect(result.health.status).toBe("partial");
@@ -103,7 +103,7 @@ describe("runSafeSource", () => {
     const collector: SourceCollector = async () => {
       attempts += 1;
       if (attempts === 1) throw new Error("ECONNRESET network failure");
-      return collection("github", [signal("recovered")]);
+      return collection("github", [signal("recovered", "github")]);
     };
     const result = await runSafeSource("github", collector, {
       retryDelayMs: 25,
@@ -151,7 +151,7 @@ describe("runSafeSource", () => {
   });
 
   it("turns malformed health metadata into an unverified source failure", async () => {
-    const malformed = { signals: [signal("one")], health: { sourceType: "github", status: "available" } } as unknown as SourceCollection;
+    const malformed = { signals: [signal("one", "github")], health: { sourceType: "github", status: "available" } } as unknown as SourceCollection;
     const result = await runSafeSource("github", async () => malformed);
     expect(result.signals).toEqual([]);
     expect(result.health.status).toBe("unverified");
@@ -159,11 +159,19 @@ describe("runSafeSource", () => {
   });
 
   it("rejects health from a different source type", async () => {
-    const mismatched = collection("github", [signal("one")]);
+    const mismatched = collection("github", [signal("one", "github")]);
     const result = await runSafeSource("reddit-feed", async () => mismatched);
     expect(result.signals).toEqual([]);
     expect(result.health.status).toBe("unverified");
     expect(result.health.failureReasons.join(" ")).toContain("sourceType");
+  });
+
+  it("rejects a parsed signal whose source type differs from the executor", async () => {
+    const result = await runSafeSource("github", async () => collection("github", [signal("wrong", "fixtures")]));
+    expect(result.signals).toEqual([]);
+    expect(result.health.status).toBe("unverified");
+    expect(result.health.failureReasons.join(" ")).toContain("signal sourceType mismatch");
+    expect(result.health.coverageNotes.join(" ")).toContain("signal sourceType mismatch");
   });
 
   it("uses executor attemptedAt instead of collector health attemptedAt", async () => {
