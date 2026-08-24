@@ -1,4 +1,4 @@
-import type { Evidence, Expression, Opportunity, RawSignal, ValidationState } from "../types.js";
+import type { Evidence, Expression, Opportunity, RawSignal, TrendSnapshot, ValidationState } from "../types.js";
 import { expressionId, normalizeExpression } from "./normalize.js";
 import { dedupeRawSignals, mergeExpressions } from "./dedupe.js";
 import { validateEvidence } from "./evidence.js";
@@ -18,6 +18,8 @@ export type QualificationInput = {
   expressionId?: string;
   candidateExpressionId?: string;
   coverage: SourceCoverage;
+  trendSnapshot?: TrendSnapshot;
+  trends?: TrendSnapshot;
 };
 
 const highRisk = /brand|medical|finance|adult|copyright|account[- ]?service|品牌|医疗|医药|金融|成人|版权|账号服务|账户服务/i;
@@ -40,6 +42,8 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
   const primaryExpression = requestedExpressionId ? expressions.find((item) => item.id === requestedExpressionId) : expressions[0];
   if (requestedExpressionId && !primaryExpression) throw new Error(`unknown expression id ${requestedExpressionId}`);
   const expectedSubjectId = primaryExpression?.id;
+  const trendSnapshot = input.trendSnapshot ?? input.trends;
+  const validTrend = Boolean(trendSnapshot && trendSnapshot.status === "verified" && trendSnapshot.expressionId === expectedSubjectId);
   const candidateSignals = primaryExpression ? projectionSignals.filter((signal) => signalExpression(signal) === primaryExpression.normalizedText) : [];
   const candidateRawSignalIds = primaryExpression ? candidateSignals.map((signal) => signal.id) : undefined;
   const checked = validateEvidence({
@@ -68,7 +72,7 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
   const delivery = input.delivery ?? (claims.has("delivery") ? "possible" : "unknown");
   const commercial = Boolean(input.commercialEvidence || claims.has("monetization"));
   const validation: ValidationState = {
-    freshness: "unknown", trend: "unknown", intent: claims.has("monetization") || claims.has("delivery") ? "commercial" : "unknown",
+    freshness: "unknown", trend: validTrend ? trendValue(trendSnapshot) : "unknown", intent: claims.has("monetization") || claims.has("delivery") ? "commercial" : "unknown",
     demand, competition, monetization: commercial ? "observed" : "unknown", delivery,
     confidence: checked.valid && candidateIndependentPublishers > 1 ? "medium" : "low",
     missingChecks: [
@@ -77,11 +81,12 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
       ...(competition !== "unknown" ? [] : ["competition or supply evidence"]),
       ...(delivery === "blocked" || (delivery === "unknown" && !commercial) ? ["delivery or commercial evidence"] : []),
       ...(input.audience || (input.recommendedArtifact && input.recommendedArtifact !== "none") ? [] : ["clear audience or artifact"]),
+      ...(validTrend ? [] : ["Google Trends 未验证"]),
     ],
   };
   if (!checked.valid) validation.missingChecks.push("valid evidence references");
   const blocked = riskFlags.some((flag) => highRisk.test(flag));
-  const complete = checked.valid && validation.missingChecks.length === 0 && delivery !== "blocked" && riskFlags.length === 0 && independentDemandEvidence && candidateIndependentPublishers > 1;
+  const complete = checked.valid && validation.missingChecks.length === 0 && delivery !== "blocked" && riskFlags.length === 0 && independentDemandEvidence && candidateIndependentPublishers > 1 && validTrend;
   const status: Opportunity["status"] = blocked ? "rejected" : complete ? "actionable" : "watch";
   const representative = candidateSignals[0];
   const title = representative ? usableText(representative) ?? "Unknown opportunity" : primaryExpression?.text ?? "Unknown opportunity";
@@ -94,4 +99,10 @@ export function qualifyOpportunity(input: QualificationInput): Opportunity {
     recommendedArtifact: input.recommendedArtifact ?? "observe", evidenceIds, validation, riskFlags,
     status, createdAt, updatedAt,
   };
+}
+
+function trendValue(snapshot: TrendSnapshot | undefined): ValidationState["trend"] {
+  if (!snapshot || snapshot.status !== "verified") return "unknown";
+  if (typeof snapshot.delta !== "number") return "stable";
+  return snapshot.delta > 0 ? "rising" : snapshot.delta < 0 ? "declining" : "stable";
 }

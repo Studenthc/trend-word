@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Evidence, RawSignal } from "../src/types.js";
+import type { Evidence, RawSignal, TrendSnapshot } from "../src/types.js";
 import { expressionId, normalizeExpression } from "../src/domain/normalize.js";
 import { qualifyOpportunity } from "../src/domain/qualification.js";
 
@@ -19,6 +19,7 @@ export function directEvidenceFor(subjectId: string): Evidence {
 }
 
 describe("qualifyOpportunity", () => {
+  const verifiedTrend: TrendSnapshot = { expressionId: expressionId(normalizeExpression("AI Workflow").normalized)!, provider: "google_trends", capturedAt: "2026-08-24T09:00:00.000Z", window: "24h", region: "US", value: 82, delta: 14, relatedQueries: [], status: "verified" };
   it("does not qualify a product-name signal from one publisher", () => {
     const signal = productHuntSignalFixture();
     const duplicate = { ...signal, id: "duplicate", author: { name: "Another author" } };
@@ -36,7 +37,7 @@ describe("qualifyOpportunity", () => {
       { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "delivery", claimType: "delivery" as const, rawSignalId: "github-1" },
       { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "audience", claimType: "user_problem" as const, rawSignalId: "github-1" },
     ];
-    const result = qualifyOpportunity({ signals, evidence, previous: [], audience: "AI creators", recommendedArtifact: "tool", competition: "mixed", delivery: "quick_mvp", commercialEvidence: true, coverage: { status: "available" } });
+    const result = qualifyOpportunity({ signals, evidence, previous: [], audience: "AI creators", recommendedArtifact: "tool", competition: "mixed", delivery: "quick_mvp", commercialEvidence: true, trendSnapshot: verifiedTrend, coverage: { status: "available" } });
     expect(result.status).toBe("actionable");
     expect(result.primaryExpressionId).toBe(expressionId(normalizeExpression("AI Workflow").normalized));
     expect(result.evidenceIds).toEqual(evidence.map((item) => item.id));
@@ -127,5 +128,12 @@ describe("qualifyOpportunity", () => {
     const result = qualifyOpportunity({ signals: [selected, otherExpression], evidence: [directEvidenceFor(selectedId)], previous: [], expressionId: selectedId, coverage: { status: "available" } });
     expect(result.validation.demand).toBe("single_signal");
     expect(result.status).toBe("watch");
+  });
+
+  it("keeps a social candidate at watch when Google Trends is unverified", () => {
+    const signal = productHuntSignalFixture();
+    const result = qualifyOpportunity({ signals: [signal, { ...signal, id: "github", sourceType: "github", sourceName: "GitHub", sourceUrl: "https://github.com/example", sourceFingerprint: "github" }], evidence: [directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!)], previous: [], expressionId: expressionId(normalizeExpression("AI Workflow").normalized)!, audience: "creators", recommendedArtifact: "tool", competition: "mixed", delivery: "possible", commercialEvidence: true, coverage: { status: "available" } });
+    expect(result.status).toBe("watch");
+    expect(result.validation.missingChecks).toContain("Google Trends 未验证");
   });
 });

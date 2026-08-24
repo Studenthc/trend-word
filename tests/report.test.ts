@@ -51,6 +51,7 @@ describe("daily radar report", () => {
     expect(report).toContain("## 风险与失败");
     expect(report).toContain("原文证据");
     expect(report).toContain("覆盖范围");
+    expect(report).toContain("Google Trends 未验证");
     expect(summary.evidenceGradeCounts?.direct).toBe(1);
     expect(summary.evidenceGradeCounts?.inferred).toBe(1);
     expect(summary.candidateStatusCounts?.actionable).toBe(1);
