@@ -122,6 +122,7 @@ describe("dedupeRawSignals", () => {
     const historical = result.find((item) => item.normalizedText === "historical")!;
     expect(result).toHaveLength(3);
     expect(historical.occurrences).toEqual([]);
+    expect(historical.lastSeenAt).toBe("2026-08-24T00:00:00.000Z");
     expect(historical.lifecycle).toBe("fading");
   });
 

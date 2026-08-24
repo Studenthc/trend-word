@@ -70,7 +70,7 @@ export function mergeExpressions(signals: RawSignal[], previous: Expression[], c
     const occurrences = group.map((item) => ({ rawSignalId: item.id, sourceType: item.sourceType, seenAt: canonicalTimestamp(item.fetchedAt) ?? (item.publishedAt ? canonicalTimestamp(item.publishedAt) : undefined) ?? "unknown" }));
     const timestamps = group.flatMap((item) => [item.publishedAt, item.fetchedAt]).map((value) => value ? canonicalTimestamp(value) : undefined).filter((value): value is string => Boolean(value)).sort();
     const firstSeenAt = canonicalTimestamp(previousExpression?.firstSeenAt ?? "") ?? timestamps[0] ?? "";
-    const lastSeenAt = timestamps.at(-1) ?? observationTimestamp ?? canonicalTimestamp(previousExpression?.lastSeenAt ?? "") ?? "";
+    const lastSeenAt = timestamps.at(-1) ?? canonicalTimestamp(previousExpression?.lastSeenAt ?? "") ?? "";
     const firstText = (first && expressionText(first)) ?? previousExpression?.text ?? "Unknown expression";
     const aliases = new Set([
       ...(previousExpression?.aliases ?? []),
@@ -91,7 +91,7 @@ export function mergeExpressions(signals: RawSignal[], previous: Expression[], c
       lifecycle: "new",
       trendState: previousExpression?.trendState ?? "unknown", qualification: previousExpression?.qualification ?? "discovered", rejectionReasons: previousExpression?.rejectionReasons ?? [],
     };
-    current.lifecycle = deriveLifecycle(current, previousExpression, coverage);
+    current.lifecycle = deriveLifecycle(current, previousExpression, coverage, group.length === 0 ? observationTimestamp : undefined);
     return current;
   });
 }

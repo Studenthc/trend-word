@@ -10,9 +10,9 @@ export function canonicalTimestamp(value: string): string | undefined {
   return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString();
 }
 
-export function deriveLifecycle(current: Expression, previous: Expression | undefined, coverage: SourceCoverage): Expression["lifecycle"] {
+export function deriveLifecycle(current: Expression, previous: Expression | undefined, coverage: SourceCoverage, currentObservationAt?: string): Expression["lifecycle"] {
   if (!previous) return "new";
-  const currentCanonical = canonicalTimestamp(current.lastSeenAt);
+  const currentCanonical = canonicalTimestamp(current.occurrences.length === 0 && currentObservationAt ? currentObservationAt : current.lastSeenAt);
   const previousCanonical = canonicalTimestamp(previous.lastSeenAt);
   const currentInstant = currentCanonical ? Date.parse(currentCanonical) : undefined;
   const previousInstant = previousCanonical ? Date.parse(previousCanonical) : undefined;

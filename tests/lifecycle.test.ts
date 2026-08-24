@@ -41,4 +41,11 @@ describe("deriveLifecycle", () => {
     expect(deriveLifecycle(sameInstant, previous, { status: "available" })).toBe("stable");
     expect(deriveLifecycle({ ...sameInstant, lastSeenAt: "not-a-date" }, previous, { status: "available" })).toBe("stable");
   });
+
+  it("uses current observation time only for missing-expression fading", () => {
+    const previous = expression("missing", 1, "stable");
+    const current = { ...previous, occurrences: [], lastSeenAt: previous.lastSeenAt };
+    expect(deriveLifecycle(current, previous, { status: "available" }, "2026-08-25T00:00:00.000Z")).toBe("fading");
+    expect(deriveLifecycle(current, previous, { status: "available" })).toBe("stable");
+  });
 });
