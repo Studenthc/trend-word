@@ -31,6 +31,8 @@ const engagementSchema = z.object({
   shares: z.number().optional(),
   views: z.number().optional(),
   score: z.number().optional(),
+  stars: z.number().optional(),
+  votes: z.number().optional(),
 });
 
 export type Engagement = z.infer<typeof engagementSchema>;
@@ -60,6 +62,9 @@ export const rawSignalSchema = z.object({
   language: z.string().optional(),
   sourceTier: z.enum(["first_party", "community", "market", "search"]),
   engagement: engagementSchema.optional(),
+  tags: z.array(z.string()).optional(),
+  permission: z.string().optional(),
+  syncWarnings: z.array(z.string()).optional(),
   sourceFingerprint: z.string(),
   evidenceStatus: z.enum(["verified", "partial", "failed"]),
   failureReason: z.string().optional(),
