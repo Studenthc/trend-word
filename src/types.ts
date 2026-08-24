@@ -195,9 +195,7 @@ const radarConfigShape = z.object({
   report: z.object({ maxActionable: z.number().int().nonnegative(), maxWatch: z.number().int().nonnegative() }),
 });
 
-export const radarConfigSchema = radarConfigShape
-  .extend({ sourceHealthStatus: sourceHealthStatusSchema.optional() })
-  .transform(({ sourceHealthStatus: _sourceHealthStatus, ...config }) => config);
+export const radarConfigSchema = radarConfigShape;
 
 export type RadarConfig = z.infer<typeof radarConfigSchema>;
 
@@ -207,14 +205,12 @@ export type SourceContext = {
   config: RadarConfig;
 };
 
-export type SourceAdapterContext = SourceContext;
-
-export type SourceAdapterResult = {
+export type SourceCollection = {
   signals: RawSignal[];
   health: SourceHealth;
 };
 
 export type SourceAdapter = {
-  sourceType: SourceType;
-  collect(context: SourceContext): Promise<SourceAdapterResult>;
+  name: SourceType;
+  collect(context: SourceContext): Promise<SourceCollection>;
 };

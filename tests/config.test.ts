@@ -3,37 +3,51 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { parseRawSignal, parseSourceHealth } from "../src/types.js";
+import { parseRawSignal, parseSourceHealth, type SourceAdapter } from "../src/types.js";
+
+async function withTempWorkspace<T>(callback: (workspaceRoot: string) => Promise<T>): Promise<T> {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-config-"));
+  try {
+    return await callback(workspaceRoot);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+}
 
 describe("loadConfig", () => {
   it("loads safe defaults without requiring provider keys", async () => {
-    const config = await loadConfig({ workspaceRoot: "/tmp/does-not-exist" });
-    expect(config).toEqual({
-      sources: {
-        required: ["scys-mcp", "producthunt", "github"],
-        bestEffort: ["x-timeline", "reddit-feed"],
-        manual: true,
-      },
-      scys: { enabled: true, queries: ["AI", "出海", "风向标"] },
-      producthunt: { enabled: true, limit: 50 },
-      github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
-      xTimeline: { enabled: false, handles: [] },
-      redditFeed: { enabled: false, communities: [] },
-      googleTrends: { mode: "manual-or-optional", region: "US" },
-      report: { maxActionable: 5, maxWatch: 20 },
+    await withTempWorkspace(async (workspaceRoot) => {
+      const config = await loadConfig({ workspaceRoot });
+      expect(config).toEqual({
+        sources: {
+          required: ["scys-mcp", "producthunt", "github"],
+          bestEffort: ["x-timeline", "reddit-feed"],
+          manual: true,
+        },
+        scys: { enabled: true, queries: ["AI", "出海", "风向标"] },
+        producthunt: { enabled: true, limit: 50 },
+        github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
+        xTimeline: { enabled: false, handles: [] },
+        redditFeed: { enabled: false, communities: [] },
+        googleTrends: { mode: "manual-or-optional", region: "US" },
+        report: { maxActionable: 5, maxWatch: 20 },
+      });
     });
   });
 
-  it("rejects an unsupported source health status", async () => {
-    await expect(loadConfig({
-      workspaceRoot: "/tmp/does-not-exist",
-      overrides: { sourceHealthStatus: "success" } as unknown,
-    })).rejects.toThrow();
+  it("rejects an unsupported source health status", () => {
+    expect(() => parseSourceHealth({
+      sourceType: "github",
+      status: "success",
+      attemptedAt: "2026-08-24T00:00:00.000Z",
+      itemCount: 0,
+      failureReasons: [],
+      coverageNotes: [],
+    })).toThrow();
   });
 
   it("loads a fixture config and applies nested overrides without returning secret fields", async () => {
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-config-"));
-    try {
+    await withTempWorkspace(async (workspaceRoot) => {
       await writeFile(path.join(workspaceRoot, "radar.config.json"), JSON.stringify({
         github: { enabled: false, limit: 7, apiKey: "file-secret" },
         scys: { apiKey: "nested-file-secret" },
@@ -51,9 +65,7 @@ describe("loadConfig", () => {
       expect(config).not.toHaveProperty("apiKey");
       expect(config.scys).not.toHaveProperty("apiKey");
       expect(config.github).not.toHaveProperty("apiKey");
-    } finally {
-      await rm(workspaceRoot, { recursive: true, force: true });
-    }
+    });
   });
 
   it("parses persisted raw signals and source health records at runtime", () => {
@@ -80,5 +92,34 @@ describe("loadConfig", () => {
 
     expect(rawSignal).not.toHaveProperty("unexpectedSecret");
     expect(sourceHealth).not.toHaveProperty("token");
+  });
+
+  it("exposes the canonical source adapter contract", async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const adapter: SourceAdapter = {
+        name: "fixtures",
+        collect: async (context) => ({
+          signals: [],
+          health: parseSourceHealth({
+            sourceType: context.config.sources.required[0],
+            status: "empty",
+            attemptedAt: context.fetchedAt,
+            itemCount: 0,
+            failureReasons: [],
+            coverageNotes: [],
+          }),
+        }),
+      };
+      const collection = await adapter.collect({
+        workspaceRoot,
+        fetchedAt: "2026-08-24T00:00:00.000Z",
+        config: await loadConfig({ workspaceRoot }),
+      });
+
+      expect(collection).toEqual({
+        signals: [],
+        health: expect.objectContaining({ sourceType: "scys-mcp", status: "empty" }),
+      });
+    });
   });
 });
