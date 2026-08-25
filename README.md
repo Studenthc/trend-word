@@ -21,3 +21,5 @@ pnpm radar -- --date 2026-08-24 --workspace /tmp/radar-configured
 Google Trends 是 `manual-or-optional` verification boundary：当前不调用 undocumented free API；没有 provider 时显示 `Google Trends 未验证`，不会伪造 zero/declining，也不会删除候选。X timeline 与 Reddit feed 是 conditional coverage，只查询显式 configured handles/communities；successful run 不代表完整社媒覆盖。Product Hunt、GitHub、SCYS 在没有 injected transport 时会明确报告 unavailable health。
 
 SCYS 网页 runtime transport 的最小接线方式：宿主 runtime 注入带登录态的 `fetcher` 和 headers，再把返回的 transport 传给 `runRadar({ transports: { "scys-mcp": transport } })`。项目不会读取浏览器 cookie、localStorage 或 token；没有 runtime 注入时保持 `unverified`。
+
+每日 Chrome 自动任务使用 `scripts/scys-browser-runtime.mjs`：任务接管已打开的 `https://scys.com/activity/documents?...` tab，调用 `createScysBrowserTransport(tab)`，再把 transport 注入 `runRadar`。任务必须在结束时释放 tab；若找不到登录态 tab，报告阻塞原因，不把结果降级为空来源。
