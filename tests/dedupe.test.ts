@@ -71,6 +71,14 @@ describe("dedupeRawSignals", () => {
     expect(result.map((item) => item.id)).toEqual(["product", "github"]);
   });
 
+  it("keeps distinct external records that share a collection URL", () => {
+    const result = dedupeRawSignals([
+      signal("first", { sourceUrl: "https://example.com/search", externalId: "first" }),
+      signal("second", { sourceUrl: "https://example.com/search", externalId: "second" }),
+    ]);
+    expect(result.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+
   it("uses canonical ids and propagates failed coverage to lifecycle", () => {
     const previous = mergeExpressions([signal("old-1"), signal("old-2", { sourceUrl: "https://example.com/old-2" })], [], { status: "available" })[0]!;
     const prior = { ...previous, id: "legacy-id", lifecycle: "stable" as const, lastSeenAt: "2026-08-24T00:00:00.000Z" };

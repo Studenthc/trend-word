@@ -13,9 +13,12 @@ function rawIdentityKeys(signal: RawSignal): string[] {
   const fingerprint = signal.sourceFingerprint.trim();
   const sourceUrl = signal.sourceUrl.trim();
   const externalId = signal.externalId?.trim();
-  if (fingerprint && (sourceUrl || externalId)) keys.push(`fingerprint:${source}:${fingerprint}:${sourceUrl}:${externalId ?? ""}`);
-  if (sourceUrl) keys.push(`url:${source}:${sourceUrl}`);
+  // A provider may return one shared list/search URL for many distinct
+  // records. Once an external id exists, that URL is only a collection
+  // endpoint and must not collapse the records into one signal.
   if (externalId) keys.push(`external:${source}:${externalId}`);
+  else if (sourceUrl) keys.push(`url:${source}:${sourceUrl}`);
+  else if (fingerprint) keys.push(`fingerprint:${source}:${fingerprint}`);
   return keys;
 }
 

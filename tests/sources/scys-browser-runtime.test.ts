@@ -16,4 +16,14 @@ describe("SCYS browser runtime normalization", () => {
       syncWarnings: ["SCYS browser search result captured; full detail body not fetched"],
     })]);
   });
+
+  it("deduplicates repeated visible rows by title", () => {
+    const rows = normalizeScysBrowserItems(
+      [{ title: "同一资料", content: "" }, { title: "同一资料", content: "" }],
+      [],
+      "AI",
+      "https://scys.com/activity/documents?id=10095&index=1",
+    );
+    expect(rows).toHaveLength(2);
+  });
 });
