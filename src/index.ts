@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dedupeRawSignals, mergeExpressions } from "./domain/dedupe.js";
+import { buildCandidateQueue } from "./domain/candidates.js";
 import { expressionId, normalizeExpression } from "./domain/normalize.js";
 import { qualifyOpportunity } from "./domain/qualification.js";
 import { renderMarkdownReport } from "./report/markdown.js";
@@ -15,6 +16,7 @@ import { createRedditFeedAdapter, type HttpTransport as RedditHttpTransport } fr
 import { runSafeSource } from "./sources/source.js";
 import { loadConfig } from "./config.js";
 import { RunStore } from "./storage/run-store.js";
+import { readCandidateFeedback } from "./storage/feedback-store.js";
 import { parseSourceHealth, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceType } from "./types.js";
 
 type StableSourceType = "scys-mcp" | "producthunt" | "github" | "x-timeline" | "reddit-feed";
@@ -41,6 +43,7 @@ export type RadarRunOptions = {
 export type RadarRunResult = {
   summary: ReturnType<typeof summarizeRun>;
   report: string;
+  candidates?: ReturnType<typeof buildCandidateQueue>;
   paths: { runDirectory: string; report: string };
 };
 
@@ -132,6 +135,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   }
 
   const deduped = dedupeRawSignals(rawSignals);
+  const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot) });
   const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));
   const coverageAvailable = sourceHealth.length > 0 && sourceHealth.every((item) => item.status === "available");
   const coverage = { status: sourceHealth.some((item) => ["blocked", "unverified"].includes(item.status)) ? "partial" as const : sourceHealth.some((item) => item.status !== "available") ? "partial" as const : "available" as const, coverageAvailable };
@@ -154,12 +158,13 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   await store.writeHistoryExpressions(expressions);
   const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: deduped, expressions, evidence, opportunities });
   const reportPath = path.join(store.runDirectory, "report.md");
-  const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities });
+  const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities, candidates });
   await store.writeProjection("run-summary", { ...baseSummary, reportPath });
   await mkdir(store.runDirectory, { recursive: true });
   await writeFile(reportPath, report, "utf8");
+  await writeFile(path.join(store.runDirectory, "candidates.json"), JSON.stringify(candidates, null, 2), "utf8");
   if (configurationError) throw configurationError;
-  return { summary: { ...baseSummary, reportPath }, report, paths: { runDirectory: store.runDirectory, report: reportPath } };
+  return { summary: { ...baseSummary, reportPath }, report, candidates, paths: { runDirectory: store.runDirectory, report: reportPath } };
 }
 
 function stableAdapter(sourceType: StableSourceType, supplied: SourceAdapter | undefined, transports: InjectedSourceTransports, config: Awaited<ReturnType<typeof loadConfig>>): SourceAdapter | undefined {

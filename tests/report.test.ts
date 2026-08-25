@@ -11,6 +11,7 @@ import { loadFixtureSignals } from "../src/sources/fixtures.js";
 import { type HttpTransport as ProductHuntTransport } from "../src/sources/producthunt.js";
 import { type HttpTransport as GitHubTransport } from "../src/sources/github.js";
 import { type McpTransport } from "../src/sources/scys-mcp.js";
+import type { CandidateQueue } from "../src/domain/candidates.js";
 import { RunStore } from "../src/storage/run-store.js";
 import type { Evidence, Opportunity, RawSignal, SourceHealth } from "../src/types.js";
 
@@ -35,6 +36,18 @@ function opportunity(id: string, status: Opportunity["status"]): Opportunity {
 }
 
 describe("daily radar report", () => {
+  it("renders a bounded Google Trends candidate queue and title-only backups", () => {
+    const candidates: CandidateQueue = {
+      formal: [{ candidateId: "candidate-ai", term: "AI短剧带货", context: "正文提到“AI短剧带货”", reason: "正文出现了具体表达", lane: "formal", sourceSignalId: "one", sourceUrl: "https://example.com/one", authorName: "作者", publishedAt: "2026-08-25T00:00:00.000Z", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=AI", score: 90, missingFields: [] }],
+      backup: [{ candidateId: "candidate-title", term: "标题线索", context: "标题线索", reason: "当前只有标题", lane: "backup", sourceSignalId: "two", sourceUrl: "https://example.com/two", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=title", score: 10, missingFields: ["正文上下文"] }],
+    };
+    const report = renderMarkdownReport({ summary: { date: "2026-08-24", sourceHealth: [], sourcesAttempted: ["scys-mcp"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates });
+    expect(report).toContain("## Google Trends 候选（过去 7 天）");
+    expect(report).toContain("[AI短剧带货]");
+    expect(report).toContain("## 备选线索");
+    expect(report).toContain("标题线索");
+  });
+
   it("renders required health, opportunity, evidence, risk, and coverage sections", () => {
     const health: SourceHealth[] = [
       { sourceType: "fixtures", status: "available", attemptedAt: "2026-08-24T00:00:00.000Z", itemCount: 2, failureReasons: [], coverageNotes: ["fixture coverage"] },
