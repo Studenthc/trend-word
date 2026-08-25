@@ -52,4 +52,50 @@ describe("candidate queue", () => {
     expect(result.formal).toHaveLength(10);
     expect(result.formal.some((item) => item.term === "新词10")).toBe(false);
   });
+
+  it("turns fresh GitHub repositories into product terms and rejects stale collection lists", () => {
+    const result = buildCandidateQueue([
+      signal("github-product", { sourceType: "github", sourceName: "GitHub", title: "acme/flowpilot", body: "Workflow automation for teams.", publishedAt: "2026-08-24T00:00:00.000Z", sourceUrl: "https://github.com/acme/flowpilot" }),
+      signal("github-list", { sourceType: "github", sourceName: "GitHub", title: "acme/awesome-ai-tools", body: "A curated list of AI tools.", publishedAt: "2025-01-01T00:00:00.000Z", sourceUrl: "https://github.com/acme/awesome-ai-tools" }),
+    ], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal).toEqual(expect.arrayContaining([expect.objectContaining({ term: "flowpilot" })]));
+    expect(result.formal.some((item) => item.term.includes("/") || item.term.includes("awesome"))).toBe(false);
+  });
+
+  it("rejects fresh GitHub tutorial, toolkit, and collection-style repositories", () => {
+    const result = buildCandidateQueue([
+      signal("github-toolkit", { sourceType: "github", title: "microsoft/responsible-ai-toolbox", body: "Tools for understanding AI systems.", publishedAt: "2026-08-24T00:00:00.000Z" }),
+      signal("github-beginners", { sourceType: "github", title: "microsoft/ai-agents-for-beginners", body: "Lessons for getting started.", publishedAt: "2026-08-24T00:00:00.000Z" }),
+      signal("github-product", { sourceType: "github", title: "acme/codebase-memory-mcp", body: "Code intelligence MCP server.", publishedAt: "2026-08-24T00:00:00.000Z" }),
+    ], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal.map((item) => item.term)).toEqual(["codebase memory mcp"]);
+  });
+
+  it("keeps a lower-scoring SCYS candidate in the verification pool when GitHub dominates", () => {
+    const githubSignals = Array.from({ length: 10 }, (_, index) => signal(`github-${index}`, {
+      sourceType: "github", sourceName: "GitHub", title: `acme/product-${index}`, body: "A concrete product description.",
+      sourceUrl: `https://github.com/acme/product-${index}`, publishedAt: "2026-08-25T00:00:00.000Z",
+    }));
+    const scysSignal = signal("scys-lower", {
+      title: "AI 女装带货流程与选品", body: "正文介绍了 AI 女装带货的具体流程和选品方法。", publishedAt: "2026-08-10T00:00:00.000Z",
+    });
+    const result = buildCandidateQueue([...githubSignals, scysSignal], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal.some((item) => item.sourceSignalId === "scys-lower")).toBe(true);
+  });
+
+  it("prioritizes a concrete user-language expression over a generic title", () => {
+    const result = buildCandidateQueue([
+      signal("generic", { title: "AI 风口来了", body: "AI、赚钱、创业" }),
+      signal("specific", { title: "用户需求", body: "评论区有人问：有没有演唱会调色修图工具？保存还经常失败。" }),
+    ], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal.map((item) => item.term)).toContain("演唱会调色修图工具");
+    expect(result.formal.map((item) => item.term)).not.toContain("AI");
+    expect(result.formal.find((item) => item.term === "演唱会调色修图工具")).toMatchObject({ reason: expect.stringContaining("用户表达"), evidenceQuote: expect.stringContaining("演唱会") });
+  });
+
+  it("caps cluster candidates at ten", () => {
+    const signals = Array.from({ length: 12 }, (_, index) => signal(`specific-${index}`, { title: "用户需求", body: `评论区有人问：${index}号演唱会调色修图工具。` }));
+    const result = buildCandidateQueue(signals, { now: "2026-08-25T00:00:00.000Z", maxFormal: 10 });
+    expect(result.formal).toHaveLength(10);
+  });
 });

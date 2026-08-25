@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dedupeRawSignals, mergeExpressions } from "./domain/dedupe.js";
 import { buildCandidateQueue } from "./domain/candidates.js";
+import { extractSeedTerms } from "./domain/seed-terms.js";
+import { clusterSeedTerms } from "./domain/expression-clusters.js";
 import { expressionId, normalizeExpression } from "./domain/normalize.js";
 import { qualifyOpportunity } from "./domain/qualification.js";
 import { renderMarkdownReport } from "./report/markdown.js";
@@ -17,7 +19,7 @@ import { runSafeSource } from "./sources/source.js";
 import { loadConfig } from "./config.js";
 import { RunStore } from "./storage/run-store.js";
 import { readCandidateFeedback } from "./storage/feedback-store.js";
-import { parseSourceHealth, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceType } from "./types.js";
+import { parseSourceHealth, type DiscoverySummary, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceType } from "./types.js";
 
 type StableSourceType = "scys-mcp" | "producthunt" | "github" | "x-timeline" | "reddit-feed";
 export type InjectedSourceTransports = {
@@ -135,21 +137,24 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   }
 
   const deduped = dedupeRawSignals(rawSignals);
-  const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot) });
+  const seedTerms = deduped.flatMap((signal) => extractSeedTerms(signal));
+  const clusters = clusterSeedTerms(seedTerms, deduped, attemptedAt);
+  const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot), seedTerms, clusters });
+  const discoverySummary = buildDiscoverySummary(options.date, deduped, sourceHealth, candidates);
+  await store.writeDiscoverySummary(discoverySummary);
   const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));
   const coverageAvailable = sourceHealth.length > 0 && sourceHealth.every((item) => item.status === "available");
   const coverage = { status: sourceHealth.some((item) => ["blocked", "unverified"].includes(item.status)) ? "partial" as const : sourceHealth.some((item) => item.status !== "available") ? "partial" as const : "available" as const, coverageAvailable };
   const expressions = mergeExpressions(deduped, previousExpressions, coverage);
   const evidence: Evidence[] = [];
-  for (const signal of deduped.filter((item) => item.evidenceStatus !== "failed")) {
-    const text = [signal.title, signal.excerpt, signal.body].find((value) => value?.trim())?.trim();
-    const subjectId = text ? expressionId(normalizeExpression(text).normalized) : undefined;
-    if (!subjectId || !text) continue;
-    evidence.push({ id: `evidence-${signal.id}`, subjectId, claimType: "adoption", rawSignalId: signal.id, quote: text, location: signal.title?.trim() === text ? "title" : "body", capturedAt: signal.fetchedAt, evidenceGrade: signal.evidenceStatus === "verified" ? "direct" : "reported", independentFrom: [signal.sourceType] });
+  for (const seed of seedTerms) {
+    evidence.push({ id: `evidence-${seed.id}`, subjectId: expressionId(seed.normalizedText) ?? `expression-${seed.id}`, claimType: seed.kind === "problem" ? "user_problem" : seed.location === "metadata" ? "adoption" : "search_intent", rawSignalId: seed.rawSignalId, quote: seed.quote, location: seed.location === "excerpt" ? "body" : seed.location === "tag" ? "metadata" : seed.location, capturedAt: seed.firstSeenAt, evidenceGrade: deduped.find((signal) => signal.id === seed.rawSignalId)?.evidenceStatus === "verified" ? "direct" : "reported", independentFrom: [seed.sourceType] });
   }
   const opportunities = expressions.map((expression) => qualifyOpportunity({ signals: deduped, evidence, previous: previousExpressions, expressionId: expression.id, recommendedArtifact: "tool", coverage }));
   await store.appendRawSignals(appendable);
   await store.writeProjection("expressions", expressions);
+  await store.writeProjection("seed-terms", seedTerms);
+  await store.writeProjection("expression-clusters", clusters);
   await store.writeProjection("evidence", evidence);
   await store.writeProjection("opportunities", opportunities);
   const historyById = new Map(previousOpportunities.map((item) => [item.id, item]));
@@ -158,7 +163,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   await store.writeHistoryExpressions(expressions);
   const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: deduped, expressions, evidence, opportunities });
   const reportPath = path.join(store.runDirectory, "report.md");
-  const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities, candidates });
+  const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities, candidates, discoverySummary });
   await store.writeProjection("run-summary", { ...baseSummary, reportPath });
   await mkdir(store.runDirectory, { recursive: true });
   await writeFile(reportPath, report, "utf8");
@@ -186,4 +191,40 @@ function healthForSignals(signals: RawSignal[], attemptedAt: string): SourceHeal
     const failed = items.filter((item) => item.evidenceStatus === "failed");
     return parseSourceHealth({ sourceType, status: failed.length === items.length ? "unverified" : failed.length > 0 ? "partial" : "available", attemptedAt, itemCount: items.length - failed.length, failureReasons: failed.map((item) => item.failureReason ?? "failed signal"), coverageNotes: failed.length > 0 ? ["failed source attempt is not evidence of no new words"] : [] });
   });
+}
+
+function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth: SourceHealth[], candidates: ReturnType<typeof buildCandidateQueue>): DiscoverySummary {
+  const runAt = Date.parse(`${date}T00:00:00.000Z`);
+  const formalBySignal = countCandidatesBySignal(candidates.formal);
+  const backupBySignal = countCandidatesBySignal(candidates.backup);
+  return {
+    date,
+    totalRawSignals: signals.length,
+    verificationPoolCount: candidates.formal.length,
+    sourceQuality: sourceHealth.map((health) => {
+      const sourceSignals = signals.filter((signal) => signal.sourceType === health.sourceType);
+      return {
+        sourceType: health.sourceType,
+        status: health.status,
+        rawCount: sourceSignals.length,
+        bodyCount: sourceSignals.filter((signal) => Boolean(signal.body?.trim() || signal.excerpt?.trim())).length,
+        freshCount: sourceSignals.filter((signal) => isFreshSignal(signal.publishedAt, runAt)).length,
+        formalCandidateCount: sourceSignals.reduce((count, signal) => count + (formalBySignal.get(signal.id) ?? 0), 0),
+        backupCandidateCount: sourceSignals.reduce((count, signal) => count + (backupBySignal.get(signal.id) ?? 0), 0),
+        failureReasons: [...health.failureReasons],
+      };
+    }),
+  };
+}
+
+function countCandidatesBySignal(items: ReturnType<typeof buildCandidateQueue>["formal"]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.sourceSignalId, (counts.get(item.sourceSignalId) ?? 0) + 1);
+  return counts;
+}
+
+function isFreshSignal(publishedAt: string | undefined, runAt: number): boolean {
+  if (!publishedAt) return false;
+  const timestamp = Date.parse(publishedAt);
+  return Number.isFinite(timestamp) && timestamp >= runAt - 7 * 86_400_000 && timestamp <= runAt + 86_400_000;
 }

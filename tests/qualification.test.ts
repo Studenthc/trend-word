@@ -37,7 +37,7 @@ describe("qualifyOpportunity", () => {
       { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "delivery", claimType: "delivery" as const, rawSignalId: "github-1" },
       { ...directEvidenceFor(expressionId(normalizeExpression("AI Workflow").normalized)!), id: "audience", claimType: "user_problem" as const, rawSignalId: "github-1" },
     ];
-    const result = qualifyOpportunity({ signals, evidence, previous: [], audience: "AI creators", recommendedArtifact: "tool", competition: "mixed", delivery: "quick_mvp", commercialEvidence: true, trendSnapshot: verifiedTrend, coverage: { status: "available" } });
+    const result = qualifyOpportunity({ signals, evidence, previous: [], audience: "AI creators", recommendedArtifact: "tool", competition: "mixed", delivery: "quick_mvp", commercialEvidence: true, trendSnapshot: verifiedTrend, referenceAt: "2026-08-24T09:00:00.000Z", coverage: { status: "available" } });
     expect(result.status).toBe("actionable");
     expect(result.primaryExpressionId).toBe(expressionId(normalizeExpression("AI Workflow").normalized));
     expect(result.evidenceIds).toEqual(evidence.map((item) => item.id));

@@ -73,6 +73,29 @@ export const rawSignalSchema = z.object({
 export type RawSignal = z.infer<typeof rawSignalSchema>;
 export const parseRawSignal = (value: unknown): RawSignal => rawSignalSchema.parse(value);
 
+export const seedTermKindSchema = z.enum(["search_term", "product", "model", "feature", "concept", "problem", "play"]);
+export type SeedTermKind = z.infer<typeof seedTermKindSchema>;
+export const seedTermLocationSchema = z.enum(["title", "body", "excerpt", "tag", "metadata"]);
+export type SeedTermLocation = z.infer<typeof seedTermLocationSchema>;
+
+export const seedTermSchema = z.object({
+  id: z.string(), rawSignalId: z.string(), text: z.string(), normalizedText: z.string(),
+  kind: seedTermKindSchema, location: seedTermLocationSchema, quote: z.string(), extractionReason: z.string(),
+  firstSeenAt: z.string(), sourceType: sourceTypeSchema,
+});
+export type SeedTerm = z.infer<typeof seedTermSchema>;
+export const parseSeedTerm = (value: unknown): SeedTerm => seedTermSchema.parse(value);
+
+export const expressionClusterSchema = z.object({
+  id: z.string(), primaryTerm: z.string(), normalizedTerms: z.array(z.string()), aliases: z.array(z.string()),
+  kinds: seedTermKindSchema.array(), seedTermIds: z.array(z.string()), rawSignalIds: z.array(z.string()),
+  sourceTypes: sourceTypeSchema.array(), independentAuthors: z.number().int().nonnegative(),
+  independentCommunities: z.number().int().nonnegative(), firstSeenAt: z.string(), lastSeenAt: z.string(),
+  freshness: z.enum(["new", "rising", "watch", "stale"]),
+});
+export type ExpressionCluster = z.infer<typeof expressionClusterSchema>;
+export const parseExpressionCluster = (value: unknown): ExpressionCluster => expressionClusterSchema.parse(value);
+
 export const expressionSchema = z.object({
   id: z.string(),
   text: z.string(),
@@ -184,6 +207,28 @@ export const sourceHealthSchema = z.object({
 
 export type SourceHealth = z.infer<typeof sourceHealthSchema>;
 export const parseSourceHealth = (value: unknown): SourceHealth => sourceHealthSchema.parse(value);
+
+export const sourceQualitySchema = z.object({
+  sourceType: z.string(),
+  status: sourceHealthStatusSchema,
+  rawCount: z.number().int().nonnegative(),
+  bodyCount: z.number().int().nonnegative(),
+  freshCount: z.number().int().nonnegative(),
+  formalCandidateCount: z.number().int().nonnegative(),
+  backupCandidateCount: z.number().int().nonnegative(),
+  failureReasons: z.array(z.string()),
+}).strict();
+
+export type SourceQuality = z.infer<typeof sourceQualitySchema>;
+
+export const discoverySummarySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  totalRawSignals: z.number().int().nonnegative(),
+  verificationPoolCount: z.number().int().nonnegative(),
+  sourceQuality: sourceQualitySchema.array(),
+}).strict();
+
+export type DiscoverySummary = z.infer<typeof discoverySummarySchema>;
 
 export const canonicalDateSchema = z.string().refine((value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

@@ -16,6 +16,11 @@ describe("GitHub adapter", () => {
     expect(result.signals[0]).toMatchObject({ sourceUrl: "https://github.com/acme/flowpilot", title: "acme/flowpilot", body: "Workflow automation", excerpt: "Build workflows with AI.", author: { name: "acme" }, publishedAt: "2026-08-20T00:00:00.000Z", language: "TypeScript", engagement: { stars: 812 } });
   });
 
+  it("uses recent repository activity for candidate freshness", async () => {
+    const result = await createGitHubAdapter(async () => response({ items: [{ full_name: "acme/flowpilot", html_url: "https://github.com/acme/flowpilot", owner: { login: "acme" }, description: "Workflow automation", created_at: "2024-01-01T00:00:00.000Z", updated_at: "2026-08-24T00:00:00.000Z" }] })).collect(context);
+    expect(result.signals[0]?.publishedAt).toBe("2026-08-24T00:00:00.000Z");
+  });
+
   it("maps rate limiting to blocked rather than empty success", async () => {
     const transport: HttpTransport = async () => response({ message: "API rate limit exceeded" }, 403);
     const result = await createGitHubAdapter(transport).collect(context);

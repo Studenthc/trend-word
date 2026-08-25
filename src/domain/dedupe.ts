@@ -1,10 +1,13 @@
 import type { Expression, RawSignal } from "../types.js";
 import { expressionId, normalizeExpression } from "./normalize.js";
 import { canonicalTimestamp, deriveLifecycle, type SourceCoverage } from "./lifecycle.js";
+import { extractSeedTerms } from "./seed-terms.js";
 
-function expressionText(signal: RawSignal): string | undefined {
+function expressionTexts(signal: RawSignal): string[] {
+  const terms = extractSeedTerms(signal).map((item) => item.text);
+  if (terms.length > 0) return terms;
   const text = [signal.title, signal.excerpt, signal.body].find((value) => value?.trim());
-  return text?.trim();
+  return text?.trim() ? [text.trim()] : [];
 }
 
 function rawIdentityKeys(signal: RawSignal): string[] {
@@ -37,13 +40,13 @@ export function dedupeRawSignals(signals: RawSignal[]): RawSignal[] {
 export function mergeExpressions(signals: RawSignal[], previous: Expression[], coverage: SourceCoverage): Expression[] {
   const groups = new Map<string, RawSignal[]>();
   for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
-    const text = expressionText(signal);
-    if (!text) continue;
-    const normalized = normalizeExpression(text).normalized;
-    if (!normalized) continue;
-    const group = groups.get(normalized) ?? [];
-    group.push(signal);
-    groups.set(normalized, group);
+    for (const text of expressionTexts(signal)) {
+      const normalized = normalizeExpression(text).normalized;
+      if (!normalized) continue;
+      const group = groups.get(normalized) ?? [];
+      group.push({ ...signal, title: text, excerpt: undefined, body: undefined });
+      groups.set(normalized, group);
+    }
   }
 
   for (const item of previous) {
@@ -74,11 +77,11 @@ export function mergeExpressions(signals: RawSignal[], previous: Expression[], c
     const timestamps = group.flatMap((item) => [item.publishedAt, item.fetchedAt]).map((value) => value ? canonicalTimestamp(value) : undefined).filter((value): value is string => Boolean(value)).sort();
     const firstSeenAt = canonicalTimestamp(previousExpression?.firstSeenAt ?? "") ?? timestamps[0] ?? "";
     const lastSeenAt = timestamps.at(-1) ?? canonicalTimestamp(previousExpression?.lastSeenAt ?? "") ?? "";
-    const firstText = (first && expressionText(first)) ?? previousExpression?.text ?? "Unknown expression";
+    const firstText = first?.title?.trim() ?? previousExpression?.text ?? "Unknown expression";
     const aliases = new Set([
       ...(previousExpression?.aliases ?? []),
       ...(previousExpression?.text ? [previousExpression.text] : []),
-      ...group.map(expressionText).filter((value): value is string => Boolean(value)),
+      ...group.map((item) => item.title?.trim()).filter((value): value is string => Boolean(value)),
     ]);
     aliases.delete(firstText);
     const sourceFamilies = representatives.length > 0 ? [...new Set(representatives.map((item) => item.sourceType))] : previousExpression?.sourceFamilies ?? [];

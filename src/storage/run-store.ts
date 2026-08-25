@@ -6,12 +6,16 @@ import {
   opportunitySchema,
   parseRawSignal,
   parseRunSummary,
+  discoverySummarySchema,
+  seedTermSchema,
+  expressionClusterSchema,
   type RawSignal,
   type Expression,
+  type DiscoverySummary,
 } from "../types.js";
 import { appendJsonl, readJsonl, replaceJson } from "./jsonl.js";
 
-type ProjectionName = "expressions" | "opportunities" | "evidence" | "run-summary";
+type ProjectionName = "expressions" | "opportunities" | "evidence" | "run-summary" | "discovery-summary" | "seed-terms" | "expression-clusters";
 type ImportName = "opportunities" | "evidence";
 type Validator = (value: unknown) => unknown;
 
@@ -20,6 +24,9 @@ const projectionValidators: Record<ProjectionName, Validator> = {
   opportunities: (value) => opportunitySchema.array().parse(value),
   evidence: (value) => evidenceSchema.array().parse(value),
   "run-summary": parseRunSummary,
+  "discovery-summary": (value) => discoverySummarySchema.parse(value),
+  "seed-terms": (value) => seedTermSchema.array().parse(value),
+  "expression-clusters": (value) => expressionClusterSchema.array().parse(value),
 };
 
 const historyValidator: Validator = (value) => opportunitySchema.array().parse(value);
@@ -72,6 +79,10 @@ export class RunStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
     }
+  }
+
+  async writeDiscoverySummary(value: DiscoverySummary): Promise<void> {
+    await this.writeProjection("discovery-summary", value);
   }
 
   async importJsonl(name: ImportName, content: string): Promise<void> {

@@ -36,16 +36,29 @@ function opportunity(id: string, status: Opportunity["status"]): Opportunity {
 }
 
 describe("daily radar report", () => {
-  it("renders a bounded Google Trends candidate queue and title-only backups", () => {
+  it("renders only the bounded Google Trends verification pool", () => {
     const candidates: CandidateQueue = {
-      formal: [{ candidateId: "candidate-ai", term: "AI短剧带货", context: "正文提到“AI短剧带货”", reason: "正文出现了具体表达", lane: "formal", sourceSignalId: "one", sourceUrl: "https://example.com/one", authorName: "作者", publishedAt: "2026-08-25T00:00:00.000Z", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=AI", score: 90, missingFields: [] }],
-      backup: [{ candidateId: "candidate-title", term: "标题线索", context: "标题线索", reason: "当前只有标题", lane: "backup", sourceSignalId: "two", sourceUrl: "https://example.com/two", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=title", score: 10, missingFields: ["正文上下文"] }],
+      formal: [{ candidateId: "candidate-ai", term: "AI短剧带货", sourceType: "scys-mcp", context: "正文提到“AI短剧带货”", reason: "正文出现了具体表达", lane: "formal", sourceSignalId: "one", sourceUrl: "https://example.com/one", authorName: "作者", publishedAt: "2026-08-25T00:00:00.000Z", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=AI", score: 90, missingFields: [] }],
+      backup: [{ candidateId: "candidate-title", term: "标题线索", sourceType: "scys-mcp", context: "标题线索", reason: "当前只有标题", lane: "backup", sourceSignalId: "two", sourceUrl: "https://example.com/two", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=title", score: 10, missingFields: ["正文上下文"] }],
     };
     const report = renderMarkdownReport({ summary: { date: "2026-08-24", sourceHealth: [], sourcesAttempted: ["scys-mcp"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates });
-    expect(report).toContain("## Google Trends 候选（过去 7 天）");
-    expect(report).toContain("[AI短剧带货]");
-    expect(report).toContain("## 备选线索");
+    expect(report).toContain("## 今日验证池");
+    expect(report).toContain("### 1. AI短剧带货");
+    expect(report).toContain("用户：正文提到“AI短剧带货”");
+    expect(report).toContain("## 新发现但证据不足");
     expect(report).toContain("标题线索");
+  });
+
+  it("keeps the daily report readable when source bodies are long", () => {
+    const longText = "关键需求：用户想要一个可搜索的 AI 工作台。" + " 这是详情正文。".repeat(120);
+    const candidates: CandidateQueue = {
+      formal: [{ candidateId: "candidate-long", term: "AI 工作台", sourceType: "fixtures", context: longText, reason: "正文出现了具体表达", lane: "formal", sourceSignalId: "one", sourceUrl: "https://example.com/one", trendsUrl: "https://trends.google.com/trends/explore?q=AI", score: 90, missingFields: [] }],
+      backup: [],
+    };
+    const report = renderMarkdownReport({ summary: { date: "2026-08-24", sourceHealth: [], sourcesAttempted: ["scys-mcp"] }, sourceHealth: [], signals: [signal("one")], expressions: [], evidence: [{ ...evidence("direct", "one", "direct"), quote: longText }], opportunities: [], candidates });
+    expect(report.length).toBeLessThan(2500);
+    expect(report).toContain("关键需求");
+    expect(report).not.toContain("这是详情正文。 ".repeat(20));
   });
 
   it("renders required health, opportunity, evidence, risk, and coverage sections", () => {
@@ -57,14 +70,13 @@ describe("daily radar report", () => {
     const opportunities = [opportunity("action", "actionable"), opportunity("validating", "validating"), opportunity("watch", "watch"), opportunity("new", "new")];
     const summary = summarizeRun({ date: "2026-08-24", sourceHealth: health, signals, expressions: [], evidence: [evidence("direct", "one", "direct"), evidence("inferred", "one", "inferred")], opportunities });
     const report = renderMarkdownReport({ summary, sourceHealth: health, signals, expressions: [], evidence: [evidence("direct", "one", "direct")], opportunities });
-    expect(report).toContain("## 来源健康");
-    expect(report).toContain("## 今日可行动机会");
-    expect(report).toContain("## 正在验证");
-    expect(report).toContain("## 新发现但证据不足");
-    expect(report).toContain("## 风险与失败");
-    expect(report).toContain("原文证据");
-    expect(report).toContain("覆盖范围");
-    expect(report).toContain("Google Trends 未验证");
+    expect(report).toContain("## 今日验证池");
+    expect(report).toContain("## 来源状态");
+    expect(report).toContain("## 今日提醒");
+    expect(report).toContain("## 数据位置");
+    expect(report).not.toContain("## 今日可行动机会");
+    expect(report).not.toContain("## 原文证据");
+    expect(report).toContain("Google Trends 尚未自动验证");
     expect(summary.evidenceGradeCounts?.direct).toBe(1);
     expect(summary.evidenceGradeCounts?.inferred).toBe(1);
     expect(summary.candidateStatusCounts?.actionable).toBe(1);
@@ -81,12 +93,16 @@ describe("daily radar report", () => {
     expect(result.summary.runStatus).toBe("complete");
     expect(result.summary.sourcesAttempted).toEqual(["fixtures"]);
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(expect.arrayContaining(["scys-mcp", "producthunt", "github", "x-timeline", "reddit-feed"]));
-    expect(result.report).toContain("## 来源健康");
+    expect(result.report).toContain("## 来源状态");
     expect(result.report).toContain("scys-mcp: available");
     expect(result.paths.report).toContain("data/runs/2026-08-24");
     for (const file of ["raw-signals.jsonl", "expressions.json", "evidence.json", "opportunities.json", "run-summary.json", "report.md"]) {
       await expect(readFile(path.join(workspaceRoot, "data", "runs", "2026-08-24", file), "utf8")).resolves.toBeTruthy();
     }
+    const discovery = JSON.parse(await readFile(path.join(workspaceRoot, "data", "runs", "2026-08-24", "discovery-summary.json"), "utf8")) as { totalRawSignals: number; verificationPoolCount: number; sourceQuality: Array<{ sourceType: string; rawCount: number; candidateCount: number }> };
+    expect(discovery.totalRawSignals).toBeGreaterThan(0);
+    expect(discovery.verificationPoolCount).toBeGreaterThan(0);
+    expect(discovery.sourceQuality).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "scys-mcp", rawCount: expect.any(Number), formalCandidateCount: expect.any(Number) })]));
   });
 
   it("parses supported CLI flags and rejects unknown flags", () => {
@@ -143,7 +159,7 @@ describe("daily radar report", () => {
     expect(result.summary.sourceHealth?.map((item) => item.status)).toEqual(["empty", "empty", "empty"]);
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "scys-mcp"]);
     expect(githubQueries).toEqual(["ai tool", "mcp", "agent"]);
-    expect(scysQueries).toEqual(["AI", "出海", "风向标"]);
+    expect(scysQueries).toEqual(["AI", "带货", "视频号"]);
   });
 
   it("keeps Task 9 sources explicit when requested", async () => {

@@ -14,7 +14,7 @@ const defaults: RadarConfig = {
     bestEffort: ["x-timeline", "reddit-feed"],
     manual: true,
   },
-  scys: { enabled: true, queries: ["AI", "出海", "风向标"] },
+  scys: { enabled: true, queries: ["AI", "带货", "视频号"] },
   producthunt: { enabled: true, limit: 50 },
   github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
   xTimeline: { enabled: false, handles: [] },
