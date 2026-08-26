@@ -4,11 +4,11 @@
 
 每日 workflow：
 
-1. 在本地 runtime 配置 SCYS MCP access；如果实际入口是已登录的 SCYS 网页，可使用 `createScysWebApiTransport` 对齐网页后端请求。credentials 只留在 runtime transport，不写入 RawSignal、报告或 fixtures。
-2. 先用 fixture mode 跑一遍，确认 pipeline 和报告可生成。
-3. 先看 `今日验证池`，再看来源状态；`blocked`、`partial`、`unverified` 不等于没有新词。
-4. 对不超过 10 个候选手工打开 Google Trends，重点记录过去 7 天增速、地区、value/delta 和 related queries。
-5. 记录决定：`keep`、`skip` 或 `false_positive`。
+1. 先读取 SCYS 最近资料，再用 `AI`、`带货`、`视频号` 等词做补充搜索；credentials 只留在 runtime transport，不写入 RawSignal、报告或 fixtures。
+2. 从普通用户句子、问题、产品/模型名称中抽取表达，按过去 7 天首次出现、重复提及和跨来源出现排序。
+3. 先看不超过 10 个 `今日验证池` 候选，再看来源状态；`blocked`、`partial`、`unverified` 不等于没有新词。
+4. 对候选手工打开 Google Trends，重点记录过去 7 天走势、地区、value/delta 和 rising queries。
+5. 可用 `verify` 保存人工结果，再记录决定：`keep`、`skip` 或 `false_positive`。
 
 运行方式：
 
@@ -16,6 +16,7 @@
 pnpm radar -- --date 2026-08-24 --sources fixtures --workspace /tmp/radar-plan-check
 pnpm radar -- --date 2026-08-24 --sources manual --input ./signals.jsonl --workspace /tmp/radar-manual
 pnpm radar -- --date 2026-08-24 --workspace /tmp/radar-configured
+pnpm radar -- verify --date 2026-08-26 --candidate candidate-一人公司自动化 --result rising --region CN --note "过去 7 天明显上升" --workspace /tmp/radar-configured
 ```
 
 报告和审计数据写入 `data/runs/YYYY-MM-DD/`。其中 `raw-signals.jsonl`、`seed-terms.json`、`expression-clusters.json`、`evidence.json` 和 `discovery-summary.json` 是发现池与来源审计数据，`candidates.json` 是今日验证池。Markdown 报告先展示用户表达和原文证据，再给 Trends 验证链接；不会倾倒完整正文。
@@ -24,7 +25,7 @@ Google Trends 是 `manual-or-optional` verification boundary：当前不调用 u
 
 SCYS 网页 runtime transport 的最小接线方式：宿主 runtime 注入带登录态的 `fetcher` 和 headers，再把返回的 transport 传给 `runRadar({ transports: { "scys-mcp": transport } })`。项目不会读取浏览器 cookie、localStorage 或 token；没有 runtime 注入时保持 `unverified`。
 
-每日 11:00 Chrome 自动任务使用 `scripts/scys-browser-runtime.mjs`：任务接管已打开的 `https://scys.com/activity/documents?...` tab，调用 `createScysBrowserTransport(tab,{browser,activityId:10095})`，通过可见的 SCYS 资料搜索结果打开 `/t/<短码>` 详情标签并读取详情页正文，再把 transport 注入 `runRadar`。SCYS 与 GitHub 分别使用 `scysTransport` 和 `httpTransport`；任务结束时必须在 `finally` 中调用 `browser.tabs.finalize({keep:[]})`。若找不到登录态 tab，报告阻塞原因，不把结果降级为空来源。详情页仍无法打开时，结果保留为 partial，不把标题冒充正文。
+每日 11:00 Chrome 自动任务使用 `scripts/scys-browser-runtime.mjs`：任务接管已打开的 `https://scys.com/activity/documents?...` tab，调用 `createScysBrowserTransport(tab,{browser,activityId:10095,recentDays:7,maxSourcesPerQuery:3})`，先按可见卡片日期排序，再通过资料搜索结果打开 `/t/<短码>` 详情标签并读取正文，把 transport 注入 `runRadar`。SCYS 与 GitHub 分别使用 `scysTransport` 和 `httpTransport`；任务结束时必须在 `finally` 中调用 `browser.tabs.finalize({keep:[]})`。若找不到登录态 tab，报告阻塞原因，不把结果降级为空来源。详情页仍无法打开时，结果保留为 partial，不把标题冒充正文。
 
 报告中的 `今日验证池` 只收录有正文/产品描述、日期、链接和具体词的候选；标题-only 线索会进入 `新发现但证据不足`，并明确缺少的验证项。候选链接使用固定的 `now 7-d` 窗口；系统不伪造趋势值。来源失败、权限阻塞和空结果仍然分别报告。完成 Trends 复核后可记录反馈：
 

@@ -82,6 +82,13 @@ export function createScysBrowserTransport(tab, options = {}) {
         date: (element.querySelector(".share-data")?.textContent || "").replace("分享日期：", "").trim(),
       }))
       .filter((item) => item.title));
+    // Search results are often sorted by relevance. Re-sort the visible
+    // records by their published card date so the daily run favors fresh
+    // discovery signals; targeted keyword searches still retain their best
+    // matches when a date is unavailable.
+    rows = [...rows]
+      .sort((left, right) => cardDateScore(right, cards) - cardDateScore(left, cards))
+      .slice(0, options.maxSourcesPerQuery ?? 3);
     if (!options.browser) return { items: normalizeScysBrowserItems(rows, cards, query, sourceUrl) };
 
     const detailedRows = [];
@@ -109,6 +116,12 @@ export function createScysBrowserTransport(tab, options = {}) {
     }
     return { items: normalizeScysBrowserItems(detailedRows, cards, query, sourceUrl) };
   };
+}
+
+function cardDateScore(row, cards) {
+  const card = cards.find((item) => item.title === row.title);
+  const parsed = card?.date ? Date.parse(`${card.date}T00:00:00+08:00`) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function clickVisibleResult(tab, title) {
