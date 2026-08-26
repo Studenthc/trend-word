@@ -63,6 +63,13 @@ async function verifyMain(args: string[]): Promise<number> {
   }
   if (!candidateId || !result) throw usageError("verify requires --candidate and --result rising|flat|declining|breakout|no_data");
   const store = new RunStore(workspaceRoot, date);
+  try {
+    const candidates = JSON.parse(await readFile(path.join(workspaceRoot, "data", "runs", date, "candidates.json"), "utf8")) as Array<{ candidateId?: string }>;
+    if (!candidates.some((item) => item.candidateId === candidateId)) throw new Error(`unknown candidate ${candidateId} in run ${date}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("unknown candidate")) throw error;
+    throw new Error(`cannot verify candidate: candidates.json is missing for run ${date}`);
+  }
   await store.appendTrendVerification({ candidateId, provider: "google_trends_manual", checkedAt: new Date().toISOString(), window: "7d", region, result, relatedQueries: [], ...(note ? { notes: note } : {}) });
   process.stdout.write(`trend verification recorded: ${candidateId} -> ${result}\n`);
   return 0;
@@ -93,3 +100,5 @@ async function feedbackMain(args: string[]): Promise<number> {
 if (process.argv[1]?.endsWith("/src/cli.ts")) {
   main().then((code) => { process.exitCode = code; });
 }
+import { readFile } from "node:fs/promises";
+import path from "node:path";
