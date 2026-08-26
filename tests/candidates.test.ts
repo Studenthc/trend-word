@@ -42,7 +42,8 @@ describe("candidate queue", () => {
 
   it("uses a specific title as the term when distinct body context supports it", () => {
     const result = buildCandidateQueue([signal("title-context", { title: "AI 工作流风向标", body: "正文说明了团队如何反复使用这个工作流，并遇到交付问题。" })]);
-    expect(result.formal[0]).toMatchObject({ term: "AI 工作流", lane: "formal" });
+    expect(result.formal).toEqual([]);
+    expect(result.backup[0]).toMatchObject({ lane: "backup" });
   });
 
   it("limits formal candidates to ten and lets skip feedback lower a candidate", () => {
@@ -59,7 +60,7 @@ describe("candidate queue", () => {
       signal("github-product", { sourceType: "github", sourceName: "GitHub", title: "acme/flowpilot", body: "Workflow automation for teams.", publishedAt: "2026-08-24T00:00:00.000Z", sourceUrl: "https://github.com/acme/flowpilot" }),
       signal("github-list", { sourceType: "github", sourceName: "GitHub", title: "acme/awesome-ai-tools", body: "A curated list of AI tools.", publishedAt: "2025-01-01T00:00:00.000Z", sourceUrl: "https://github.com/acme/awesome-ai-tools" }),
     ], { now: "2026-08-25T00:00:00.000Z" });
-    expect(result.formal).toEqual(expect.arrayContaining([expect.objectContaining({ term: "flowpilot" })]));
+    expect(result.backup).toEqual(expect.arrayContaining([expect.objectContaining({ term: "flowpilot" })]));
     expect(result.formal.some((item) => item.term.includes("/") || item.term.includes("awesome"))).toBe(false);
   });
 
@@ -69,7 +70,7 @@ describe("candidate queue", () => {
       signal("github-beginners", { sourceType: "github", title: "microsoft/ai-agents-for-beginners", body: "Lessons for getting started.", publishedAt: "2026-08-24T00:00:00.000Z" }),
       signal("github-product", { sourceType: "github", title: "acme/codebase-memory-mcp", body: "Code intelligence MCP server.", publishedAt: "2026-08-24T00:00:00.000Z" }),
     ], { now: "2026-08-25T00:00:00.000Z" });
-    expect(result.formal.map((item) => item.term)).toEqual(["codebase memory mcp"]);
+    expect(result.backup.map((item) => item.term)).toContain("codebase memory mcp");
   });
 
   it("keeps a lower-scoring SCYS candidate in the verification pool when GitHub dominates", () => {
@@ -112,5 +113,24 @@ describe("candidate queue", () => {
     const candidate = result.formal.find((item) => item.term === "一人公司自动化");
     expect(candidate).toMatchObject({ recentMentions: 1, baselineMentions: 0 });
     expect(candidate?.whyNow?.length).toBeGreaterThan(0);
+  });
+
+  it("keeps single-source product entities and generic features in observation", () => {
+    const result = buildCandidateQueue([
+      signal("ph", { sourceType: "producthunt", title: "FlowPilot", body: "AI workflow copilot for creators." }),
+      signal("gh", { sourceType: "github", title: "acme/agent-workflow", body: "Workflow automation toolkit." }),
+    ], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal.map((item) => item.term)).not.toEqual(expect.arrayContaining(["FlowPilot", "agent workflow"]));
+    expect(result.backup.map((item) => item.term)).toEqual(expect.arrayContaining(["FlowPilot"]));
+  });
+
+  it("keeps a concrete user problem in the formal verification pool", () => {
+    const result = buildCandidateQueue([signal("problem", { body: "用户问有没有一人公司自动化方案，想直接落地。" })], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal.map((item) => item.term)).toContain("一人公司自动化");
+  });
+
+  it("does not promote a generic AI workflow title into the Trends pool", () => {
+    const result = buildCandidateQueue([signal("generic-workflow", { title: "AI 工作流风向标", body: "社区成员分享了可复用的 AI 工作流。" })], { now: "2026-08-25T00:00:00.000Z" });
+    expect(result.formal.map((item) => item.term)).not.toContain("AI 工作流");
   });
 });

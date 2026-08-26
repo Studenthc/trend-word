@@ -1,12 +1,12 @@
 # New Word Opportunity Radar
 
-本地、fixture-first 的种子词雷达：保留所有来源原始线索作为发现池，从用户原话、问题、产品、模型、功能和玩法中抽取 `SeedTerm`，再将别名归并为表达簇，筛出最多 10 个适合手工打开 Google Trends 验证的今日验证池。系统负责减少检索劳动，不替用户判断商业价值。
+本地、fixture-first 的种子词雷达：保留所有来源原始线索作为发现池，从用户原话、问题、产品、模型、功能和玩法中抽取 `SeedTerm`，再将别名归并为表达簇，筛出最多 10 个适合手工打开 Google Trends 验证的正式候选。单一产品名和泛功能词会留在观察候选中。系统负责减少检索劳动，不替用户判断商业价值。
 
 每日 workflow：
 
 1. 先读取 SCYS 最近资料，再用 `AI`、`带货`、`视频号` 等词做补充搜索；credentials 只留在 runtime transport，不写入 RawSignal、报告或 fixtures。
 2. 从普通用户句子、问题、产品/模型名称中抽取表达，按过去 7 天首次出现、重复提及和跨来源出现排序。
-3. 先看不超过 10 个 `今日验证池` 候选，再看来源状态；`blocked`、`partial`、`unverified` 不等于没有新词。
+3. 先看不超过 10 个 `今天先查` 正式候选，再看 `观察候选` 和来源状态；`blocked`、`partial`、`unverified` 不等于没有新词。
 4. 对候选手工打开 Google Trends，重点记录过去 7 天走势、地区、value/delta 和 rising queries。
 5. 可用 `verify` 保存人工结果，再记录决定：`keep`、`skip` 或 `false_positive`。
 
@@ -27,7 +27,7 @@ SCYS 网页 runtime transport 的最小接线方式：宿主 runtime 注入带�
 
 每日 11:00 Chrome 自动任务使用 `scripts/scys-browser-runtime.mjs`：任务接管已打开的 `https://scys.com/activity/documents?...` tab，调用 `createScysBrowserTransport(tab,{browser,activityId:10095,recentDays:7,maxSourcesPerQuery:3})`，先按可见卡片日期排序，再通过资料搜索结果打开 `/t/<短码>` 详情标签并读取正文，把 transport 注入 `runRadar`。SCYS 与 GitHub 分别使用 `scysTransport` 和 `httpTransport`；任务结束时必须在 `finally` 中调用 `browser.tabs.finalize({keep:[]})`。若找不到登录态 tab，报告阻塞原因，不把结果降级为空来源。详情页仍无法打开时，结果保留为 partial，不把标题冒充正文。
 
-报告中的 `今日验证池` 只收录有正文/产品描述、日期、链接和具体词的候选；标题-only 线索会进入 `新发现但证据不足`，并明确缺少的验证项。候选链接使用固定的 `now 7-d` 窗口；系统不伪造趋势值。来源失败、权限阻塞和空结果仍然分别报告。完成 Trends 复核后可记录反馈：
+报告中的 `今天先查` 只收录用户问题、搜索意图或多来源具体表达；单一产品/功能实体进入 `观察候选`，并明确下一步需要的证据。候选链接使用固定的 `now 7-d` 窗口；系统不伪造趋势值。来源失败、权限阻塞和空结果仍然分别报告。完成 Trends 复核后可记录反馈：
 
 ```bash
 pnpm radar -- feedback --candidate candidate-ai短剧带货 --decision keep --workspace /tmp/radar-scys-today

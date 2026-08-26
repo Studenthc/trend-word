@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expressionId, normalizeExpression } from "../src/domain/normalize.js";
+import { expressionId, normalizeExpression, expressionKey } from "../src/domain/normalize.js";
 
 describe("normalizeExpression", () => {
   it("normalizes Chinese punctuation and Unicode whitespace without changing the original", () => {
@@ -19,5 +19,9 @@ describe("normalizeExpression", () => {
   it("creates one stable expression id from normalized text", () => {
     expect(expressionId(" AI 工作流！ ")).toBe(expressionId("ai 工作流"));
     expect(expressionId("   ")).toBeUndefined();
+  });
+
+  it("uses the same key for common Chinese and English aliases", () => {
+    expect(expressionKey("AI workflow")).toBe(expressionKey("AI 工作流"));
   });
 });

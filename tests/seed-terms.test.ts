@@ -35,4 +35,10 @@ describe("extractSeedTerms", () => {
     expect(terms.find((item) => item.text === "一人公司自动化")?.quote).toContain("一人公司自动化");
     expect(terms.map((item) => item.text)).not.toContain("AI");
   });
+
+  it("rejects generic feature phrases while keeping concrete demand language", () => {
+    const terms = extractSeedTerms(signal({ body: "最近很多人推荐 AI tools 和 Workflow automation，但有人问有没有一人公司自动化方案。" }));
+    expect(terms.map((item) => item.text)).toContain("一人公司自动化");
+    expect(terms.map((item) => item.text)).not.toEqual(expect.arrayContaining(["AI tools", "Workflow automation"]));
+  });
 });

@@ -1,7 +1,7 @@
 import type { RawSignal, SeedTerm, SeedTermKind, SeedTermLocation } from "../types.js";
-import { normalizeExpression } from "./normalize.js";
+import { expressionKey, normalizeExpression } from "./normalize.js";
 
-const noise = new Set(["ai", "工具", "新玩法", "风口", "需求", "出海", "赚钱", "创业", "短视频", "工作流"]);
+const noise = new Set(["ai", "工具", "新玩法", "风口", "需求", "出海", "赚钱", "创业", "短视频", "工作流", "ai workflow", "ai 工作流", "workflow automation", "ai tools", "ai tool", "agent workflow"]);
 const phraseMarkers = /(?:工具|小程序|生成器|修图|记账|翻译器|模板|generator|tool|app|game|workflow|model|skill)/iu;
 const problemMarkers = /(?<!需)(?:求|需要|怎么|无法|打不开|保存不了|保存失败|尺寸不对|太贵|卡顿|失败|找不到)/u;
 
@@ -54,7 +54,7 @@ export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
 }
 
 export function classifySeedTerm(text: string, quote: string): SeedTermKind {
-  if (/(?:问题|失败|无法|打不开|保存不了|尺寸不对|太贵|卡顿|找不到)/u.test(quote)) return "problem";
+  if (/(?:问题|有人问|失败|无法|打不开|保存不了|尺寸不对|太贵|卡顿|找不到)/u.test(quote)) return "problem";
   if (/(?:generator|tool|app|小程序|工具|修图|记账|翻译器)/iu.test(text)) return "feature";
   if (/(?:game|游戏|玩法)/iu.test(text)) return "play";
   if (/(?:model|模型|skill|工程|engineering)/iu.test(text)) return "model";
@@ -64,7 +64,7 @@ export function classifySeedTerm(text: string, quote: string): SeedTermKind {
 
 export function isDiscoveryNoise(text: string): boolean {
   const normalized = normalizeExpression(text).normalized;
-  return noise.has(normalized);
+  return noise.has(normalized) || noise.has(expressionKey(text));
 }
 
 function contextualTerms(sentence: string): string[] {
