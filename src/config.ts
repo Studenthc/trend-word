@@ -15,12 +15,13 @@ const defaults: RadarConfig = {
     manual: true,
   },
   scys: { enabled: true, queries: ["AI", "带货", "视频号"] },
+  discovery: { recentDays: 7, maxSourcesPerQuery: 3 },
   producthunt: { enabled: true, limit: 50 },
   github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
   xTimeline: { enabled: false, handles: [] },
   redditFeed: { enabled: false, communities: [] },
   googleTrends: { mode: "manual-or-optional", region: "US" },
-  report: { maxActionable: 5, maxWatch: 20 },
+  report: { maxActionable: 5, maxWatch: 20, maxVerificationItems: 10 },
 };
 
 function mergeConfig(base: unknown, override: unknown): unknown {

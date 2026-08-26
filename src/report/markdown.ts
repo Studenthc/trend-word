@@ -73,8 +73,9 @@ function candidateSection(queue: CandidateQueue): string[] {
 function candidateLines(candidate: CandidateQueue["formal"][number], index: number): string[] {
   return [
     `### ${index}. ${candidate.term}`,
-    `- 用户：${excerpt(candidate.evidenceQuote ?? candidate.context, 90)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`,
-    `- 证据：${excerpt(candidate.reason, 80)}${candidate.sourceCount ? ` · ${candidate.sourceCount} 个来源` : ""} · [原文](${candidate.sourceUrl}) · [Trends 7d](${candidate.trendsUrl}) · 缺少：${candidate.missingFields.join("、") || "无"}`,
+    `- 为什么现在：${candidate.whyNow?.join("；") ?? excerpt(candidate.reason, 100)}`,
+    `- 用户原话：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`,
+    `- 来源：${candidate.sourceCount ? `${candidate.sourceCount} 个来源` : candidate.sourceType} · [原文](${candidate.sourceUrl}) · [查 Google Trends 7d](${candidate.trendsUrl})` + (candidate.missingFields.length > 0 ? ` · 尚缺：${candidate.missingFields.join("、")}` : ""),
   ];
 }
 

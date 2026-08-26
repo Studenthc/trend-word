@@ -139,7 +139,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   const deduped = dedupeRawSignals(rawSignals);
   const seedTerms = deduped.flatMap((signal) => extractSeedTerms(signal));
   const clusters = clusterSeedTerms(seedTerms, deduped, attemptedAt);
-  const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot), seedTerms, clusters });
+  const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot), seedTerms, clusters, previousExpressions });
   const discoverySummary = buildDiscoverySummary(options.date, deduped, sourceHealth, candidates);
   await store.writeDiscoverySummary(discoverySummary);
   const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));

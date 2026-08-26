@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCandidateQueue } from "../src/domain/candidates.js";
 import type { RawSignal } from "../src/types.js";
+import type { Expression } from "../src/types.js";
 
 function signal(id: string, changes: Partial<RawSignal> = {}): RawSignal {
   return {
@@ -97,5 +98,19 @@ describe("candidate queue", () => {
     const signals = Array.from({ length: 12 }, (_, index) => signal(`specific-${index}`, { title: "用户需求", body: `评论区有人问：${index}号演唱会调色修图工具。` }));
     const result = buildCandidateQueue(signals, { now: "2026-08-25T00:00:00.000Z", maxFormal: 10 });
     expect(result.formal).toHaveLength(10);
+  });
+
+  it("exposes why-now novelty metrics and prefers repeated recent language", () => {
+    const repeated = signal("repeat", { body: "大家开始讨论一人公司自动化，想找能落地的方案。" });
+    const once = signal("once", { body: "大家开始讨论陪跑式交付，想找能落地的方案。" });
+    const previous: Expression = {
+      id: "expression-一人公司自动化", text: "一人公司自动化", normalizedText: "一人公司自动化", aliases: [], kind: "concept",
+      firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-20T00:00:00.000Z", occurrences: [], sourceFamilies: ["scys-mcp"], independentAuthors: 1, independentCommunities: 1, independentPublishers: 1,
+      lifecycle: "watch", trendState: "unknown", qualification: "discovered", rejectionReasons: [],
+    };
+    const result = buildCandidateQueue([repeated, once], { now: "2026-08-25T00:00:00.000Z", previousExpressions: [previous] });
+    const candidate = result.formal.find((item) => item.term === "一人公司自动化");
+    expect(candidate).toMatchObject({ recentMentions: 1, baselineMentions: 0 });
+    expect(candidate?.whyNow?.length).toBeGreaterThan(0);
   });
 });

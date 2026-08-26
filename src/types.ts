@@ -161,6 +161,22 @@ export const trendSnapshotSchema = z.object({
 
 export type TrendSnapshot = z.infer<typeof trendSnapshotSchema>;
 
+export const trendVerificationSchema = z.object({
+  candidateId: z.string(),
+  provider: z.literal("google_trends_manual"),
+  checkedAt: z.string(),
+  window: z.literal("7d"),
+  region: z.string(),
+  result: z.enum(["rising", "flat", "declining", "breakout", "no_data"]),
+  value: z.number().optional(),
+  delta: z.number().optional(),
+  relatedQueries: z.array(z.object({ text: z.string(), growth: z.number().optional(), type: z.enum(["top", "rising"]).optional() })),
+  notes: z.string().optional(),
+});
+
+export type TrendVerification = z.infer<typeof trendVerificationSchema>;
+export const parseTrendVerification = (value: unknown): TrendVerification => trendVerificationSchema.parse(value);
+
 export const validationStateSchema = z.object({
   freshness: z.enum(["unknown", "confirmed", "stale"]),
   trend: z.enum(["unknown", "rising", "stable", "declining", "event_spike"]),
@@ -265,12 +281,13 @@ const radarConfigShape = z.object({
     manual: z.boolean(),
   }).strict(),
   scys: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }).strict(),
+  discovery: z.object({ recentDays: z.number().int().positive(), maxSourcesPerQuery: z.number().int().positive() }).strict(),
   producthunt: z.object({ enabled: z.boolean(), limit: z.number().int().positive() }).strict(),
   github: z.object({ enabled: z.boolean(), queries: z.array(z.string()), limit: z.number().int().positive() }).strict(),
   xTimeline: z.object({ enabled: z.boolean(), handles: z.array(z.string()) }).strict(),
   redditFeed: z.object({ enabled: z.boolean(), communities: z.array(z.string()) }).strict(),
   googleTrends: z.object({ mode: z.literal("manual-or-optional"), region: z.string() }).strict(),
-  report: z.object({ maxActionable: z.number().int().nonnegative(), maxWatch: z.number().int().nonnegative() }).strict(),
+  report: z.object({ maxActionable: z.number().int().nonnegative(), maxWatch: z.number().int().nonnegative(), maxVerificationItems: z.number().int().nonnegative() }).strict(),
 }).strict();
 
 export const radarConfigSchema = radarConfigShape;

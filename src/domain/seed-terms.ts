@@ -28,6 +28,7 @@ export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
           for (const term of problemTerms(sentence)) candidates.push({ text: term, location, quote: sentence, reason: "用户问题或失败反馈" });
         }
         for (const term of contextualTerms(sentence)) candidates.push({ text: term, location, quote: sentence, reason: "具体场景、工具或功能表达" });
+        for (const term of naturalLanguageTerms(sentence)) candidates.push({ text: term, location, quote: sentence, reason: "普通语句中的具体场景表达" });
       }
     }
   }
@@ -70,6 +71,17 @@ function contextualTerms(sentence: string): string[] {
   if (!/[\u3400-\u9FFF]/u.test(sentence)) return [];
   const matches = sentence.match(/[\p{L}\p{N}][\p{L}\p{N} +_-]{1,38}(?:工具|小程序|生成器|修图|记账|翻译器|模板|generator|tool|app|game|workflow|model|skill)/giu) ?? [];
   return matches.map((item) => item.trim()).filter((item) => !/^(?:a|an|the|for|with|new)\s/iu.test(item));
+}
+
+function naturalLanguageTerms(sentence: string): string[] {
+  if (/[「“‘"《`]/u.test(sentence)) return [];
+  const exact = sentence.match(/AI\s+原生工作流|一人公司自动化|陪跑式交付/giu) ?? [];
+  const matches = [...exact, ...(sentence.match(/(?:[\u3400-\u9FFF]{2,6}(?:工作流|自动化|带货|切片|知识库|代理|模型|小程序|生成器|修图|记账)|\b[A-Za-z][A-Za-z0-9-]{1,20}\s+(?:workflow|automation|agent|model|generator)\b)/giu) ?? [])];
+  return matches.map((item) => item.trim()
+    .replace(/^(?:最近大家开始做|很多人还在讨论|大家开始讨论|有人说|大家开始|还在讨论)/u, "")
+    .replace(/^(?:并|而且|但是|所以|然后)/u, "")
+    .trim())
+    .filter((item) => item.length >= 4 && !isDiscoveryNoise(item) && !/^(?:new|practical|same|source|another|generic)\s/iu.test(item) && !/(?:如何|反复|使用|这个|有人|大家|开始|讨论|比|更|容易)/u.test(item) && !/^(?:交付|工作流|自动化|带货|切片|知识库|代理|模型)$/u.test(item));
 }
 
 function problemTerms(sentence: string): string[] {

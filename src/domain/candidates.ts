@@ -1,4 +1,4 @@
-import type { ExpressionCluster, RawSignal, SeedTerm } from "../types.js";
+import type { Expression, ExpressionCluster, RawSignal, SeedTerm } from "../types.js";
 import { normalizeExpression } from "./normalize.js";
 import { clusterSeedTerms } from "./expression-clusters.js";
 import { extractSeedTerms } from "./seed-terms.js";
@@ -28,6 +28,10 @@ export type RadarCandidate = {
   evidenceQuote?: string;
   freshness?: ExpressionCluster["freshness"];
   sourceCount?: number;
+  noveltyScore?: number;
+  whyNow?: string[];
+  recentMentions?: number;
+  baselineMentions?: number;
 };
 
 export type CandidateQueue = { formal: RadarCandidate[]; backup: RadarCandidate[] };
@@ -40,6 +44,7 @@ export type CandidateQueueOptions = {
   maxBackup?: number;
   seedTerms?: SeedTerm[];
   clusters?: ExpressionCluster[];
+  previousExpressions?: Expression[];
 };
 
 export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueueOptions = {}): CandidateQueue {
@@ -56,7 +61,7 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
     if (!signal || signal.evidenceStatus === "failed") continue;
     const seed = seedTerms.find((item) => item.id === cluster.seedTermIds[0]);
     if (!seed) continue;
-    addCandidate(formal, candidateForCluster(signal, cluster, seed, now, options.region ?? "CN", feedback));
+    addCandidate(formal, candidateForCluster(signal, cluster, seed, now, options.region ?? "CN", feedback, options.previousExpressions ?? []));
   }
 
   for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
@@ -117,20 +122,32 @@ function candidateFor(signal: RawSignal, term: string, context: string, lane: Ra
     ...(signal.author?.name ? { authorName: signal.author.name } : {}),
     ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
     trendsUrl: buildTrendsUrl(term.trim(), region), score, missingFields,
+    noveltyScore: score, whyNow: lane === "formal" ? ["正文出现具体表达"] : [], recentMentions: signal.publishedAt && freshnessScore(signal.publishedAt, now) > 0 ? 1 : 0, baselineMentions: 0,
   };
 }
 
-function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed: SeedTerm, now: number, region: string, feedback: Map<string, CandidateFeedback>): RadarCandidate {
+function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed: SeedTerm, now: number, region: string, feedback: Map<string, CandidateFeedback>, previousExpressions: Expression[]): RadarCandidate {
   const normalized = normalizeExpression(cluster.primaryTerm).normalized;
   const candidateId = `candidate-${normalized}`;
   const decision = feedback.get(candidateId)?.decision;
-  const score = 70 + (cluster.freshness === "rising" ? 20 : cluster.freshness === "new" ? 12 : 0) + Math.min(cluster.sourceTypes.length * 4, 12) + Math.min(cluster.independentAuthors, 3) + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
+  const recentMentions = cluster.rawSignalIds.length;
+  const baselineMentions = previousExpressions.find((item) => item.normalizedText === normalized)?.occurrences.length ?? 0;
+  const noveltyScore = (cluster.freshness === "new" ? 35 : cluster.freshness === "rising" ? 25 : 5)
+    + Math.min(recentMentions * 10, 30) + Math.min(cluster.independentAuthors * 5, 15) + Math.min(cluster.sourceTypes.length * 5, 15)
+    + (seed.kind === "problem" ? 10 : 0) + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
+  const score = 70 + noveltyScore;
+  const whyNow = [
+    cluster.freshness === "rising" ? "7 天内多来源重复出现" : cluster.freshness === "new" ? "7 天内首次发现" : "近期仍有出现",
+    `${recentMentions} 次提及`,
+    ...(cluster.independentAuthors > 1 ? [`${cluster.independentAuthors} 位作者`] : []),
+    ...(cluster.sourceTypes.length > 1 ? [`来自 ${cluster.sourceTypes.join("、")}`] : []),
+  ];
   return {
     candidateId, term: cluster.primaryTerm, sourceType: signal.sourceType, context: seed.quote,
     reason: `${seed.extractionReason}；${cluster.freshness === "rising" ? "多来源近期重复出现" : "近期首次发现"}；用户表达优先于标题`,
     lane: "formal", sourceSignalId: signal.id, sourceUrl: signal.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}), ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
-    trendsUrl: buildTrendsUrl(cluster.primaryTerm, region), score, missingFields: ["Google Trends 7d", "SERP/供给", "用户/商业证据"],
+    trendsUrl: buildTrendsUrl(cluster.primaryTerm, region), score, noveltyScore, whyNow, recentMentions, baselineMentions, missingFields: ["Google Trends 7d", "SERP/供给", "用户/商业证据"],
     clusterId: cluster.id, evidenceQuote: seed.quote.slice(0, 220), freshness: cluster.freshness, sourceCount: cluster.sourceTypes.length,
   };
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { parseCliArgs } from "../src/cli.js";
 import { runRadar } from "../src/index.js";
 import { summarizeRun } from "../src/report/summary.js";
 import { renderMarkdownReport } from "../src/report/markdown.js";
+import { main } from "../src/cli.js";
 import { mergeExpressions } from "../src/domain/dedupe.js";
 import { loadFixtureSignals } from "../src/sources/fixtures.js";
 import { type HttpTransport as ProductHuntTransport } from "../src/sources/producthunt.js";
@@ -44,9 +45,18 @@ describe("daily radar report", () => {
     const report = renderMarkdownReport({ summary: { date: "2026-08-24", sourceHealth: [], sourcesAttempted: ["scys-mcp"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates });
     expect(report).toContain("## 今日验证池");
     expect(report).toContain("### 1. AI短剧带货");
-    expect(report).toContain("用户：正文提到“AI短剧带货”");
+    expect(report).toContain("用户原话：正文提到“AI短剧带货”");
     expect(report).toContain("## 新发现但证据不足");
     expect(report).toContain("标题线索");
+  });
+
+  it("rejects manual Trends verification for an unknown candidate", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-verify-"));
+    try {
+      await expect(main(["verify", "--date", "2026-08-24", "--candidate", "candidate-missing", "--result", "rising", "--workspace", workspaceRoot])).resolves.toBe(1);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps the daily report readable when source bodies are long", () => {
