@@ -25,14 +25,28 @@ describe("loadConfig", () => {
           manual: true,
         },
         scys: { enabled: true, queries: ["AI", "带货", "视频号"] },
+        discovery: { recentDays: 7, maxSourcesPerQuery: 3 },
         producthunt: { enabled: true, limit: 50 },
         github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
         xTimeline: { enabled: false, handles: [] },
         redditFeed: { enabled: false, communities: [] },
         googleTrends: { mode: "manual-or-optional", region: "US" },
-        report: { maxActionable: 5, maxWatch: 20 },
+        report: { maxActionable: 5, maxWatch: 20, maxVerificationItems: 10 },
       });
     });
+  });
+
+  it("accepts manual Google Trends verification records", async () => {
+    const { parseTrendVerification } = await import("../src/types.js");
+    expect(parseTrendVerification({
+      candidateId: "candidate-demo",
+      provider: "google_trends_manual",
+      checkedAt: "2026-08-26T10:00:00.000Z",
+      window: "7d",
+      region: "CN",
+      result: "rising",
+      relatedQueries: [{ text: "demo tool", type: "rising", growth: 100 }],
+    })).toMatchObject({ candidateId: "candidate-demo", result: "rising" });
   });
 
   it("rejects unknown fields at the config boundary", async () => {
@@ -72,7 +86,7 @@ describe("loadConfig", () => {
       });
 
       expect(config.github).toEqual({ enabled: false, queries: ["ai tool", "mcp", "agent"], limit: 11 });
-      expect(config.report).toEqual({ maxActionable: 2, maxWatch: 9 });
+      expect(config.report).toEqual({ maxActionable: 2, maxWatch: 9, maxVerificationItems: 10 });
     });
   });
 
