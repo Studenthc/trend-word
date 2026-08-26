@@ -81,7 +81,7 @@ function naturalLanguageTerms(sentence: string): string[] {
     .replace(/^(?:最近大家开始做|很多人还在讨论|大家开始讨论|有人说|大家开始|还在讨论)/u, "")
     .replace(/^(?:并|而且|但是|所以|然后)/u, "")
     .trim())
-    .filter((item) => item.length >= 4 && !isDiscoveryNoise(item) && !/(?:如何|反复|使用|这个|有人|大家|开始|讨论|比|更|容易)/u.test(item) && !/^(?:交付|工作流|自动化|带货|切片|知识库|代理|模型)$/u.test(item));
+    .filter((item) => item.length >= 4 && !isDiscoveryNoise(item) && !/^(?:new|practical|same|source|another|generic)\s/iu.test(item) && !/(?:如何|反复|使用|这个|有人|大家|开始|讨论|比|更|容易)/u.test(item) && !/^(?:交付|工作流|自动化|带货|切片|知识库|代理|模型)$/u.test(item));
 }
 
 function problemTerms(sentence: string): string[] {
