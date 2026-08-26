@@ -26,4 +26,13 @@ describe("extractSeedTerms", () => {
   it("rejects generic source noise", () => {
     expect(extractSeedTerms(signal({ title: "AI 风向标：新玩法", body: "AI、出海、赚钱、创业。" }))).toEqual([]);
   });
+
+  it("extracts unquoted domain phrases from ordinary user language", () => {
+    const terms = extractSeedTerms(signal({
+      body: "最近大家开始做 AI 原生工作流，很多人还在讨论一人公司自动化。有人说陪跑式交付比卖模板更容易成交。",
+    }));
+    expect(terms.map((item) => item.text)).toEqual(expect.arrayContaining(["AI 原生工作流", "一人公司自动化", "陪跑式交付"]));
+    expect(terms.find((item) => item.text === "一人公司自动化")?.quote).toContain("一人公司自动化");
+    expect(terms.map((item) => item.text)).not.toContain("AI");
+  });
 });
