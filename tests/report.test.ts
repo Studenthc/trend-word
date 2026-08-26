@@ -44,7 +44,7 @@ describe("daily radar report", () => {
     const report = renderMarkdownReport({ summary: { date: "2026-08-24", sourceHealth: [], sourcesAttempted: ["scys-mcp"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates });
     expect(report).toContain("## 今日验证池");
     expect(report).toContain("### 1. AI短剧带货");
-    expect(report).toContain("用户：正文提到“AI短剧带货”");
+    expect(report).toContain("用户原话：正文提到“AI短剧带货”");
     expect(report).toContain("## 新发现但证据不足");
     expect(report).toContain("标题线索");
   });
