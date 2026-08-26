@@ -1,10 +1,10 @@
 import type { ExpressionCluster, RawSignal, SeedTerm } from "../types.js";
-import { normalizeExpression } from "./normalize.js";
+import { expressionKey, normalizeExpression } from "./normalize.js";
 
 export function seedTermKey(text: string): string {
-  const normalized = normalizeExpression(text).normalized;
+  const normalized = expressionKey(text);
   const tokens = normalized.split(/\s+/u).filter(Boolean);
-  return /^[a-z0-9 ]+$/iu.test(normalized) ? [...tokens].sort().join(" ") : normalized;
+  return /[a-z]/iu.test(normalized) ? [...tokens].sort().join(" ") : normalized;
 }
 
 export function clusterSeedTerms(seeds: SeedTerm[], signals: RawSignal[], now: string): ExpressionCluster[] {

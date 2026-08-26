@@ -28,6 +28,8 @@ export type RadarCandidate = {
   evidenceQuote?: string;
   freshness?: ExpressionCluster["freshness"];
   sourceCount?: number;
+  qualificationReason?: string;
+  evidenceKind?: "problem" | "search_term" | "concept" | "product" | "feature" | "model" | "play";
   noveltyScore?: number;
   whyNow?: string[];
   recentMentions?: number;
@@ -61,7 +63,8 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
     if (!signal || signal.evidenceStatus === "failed") continue;
     const seed = seedTerms.find((item) => item.id === cluster.seedTermIds[0]);
     if (!seed) continue;
-    addCandidate(formal, candidateForCluster(signal, cluster, seed, now, options.region ?? "CN", feedback, options.previousExpressions ?? []));
+    const clusterCandidate = candidateForCluster(signal, cluster, seed, now, options.region ?? "CN", feedback, options.previousExpressions ?? []);
+    addCandidate(clusterCandidate.lane === "formal" ? formal : backup, clusterCandidate);
   }
 
   for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
@@ -71,7 +74,7 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
     if (!title) continue;
     const context = meaningfulContext(signal, title);
     const terms = context ? extractTerms(context) : [];
-    if (context && terms.length === 0) {
+    if (context && terms.length === 0 && signal.sourceType !== "github" && !/(?:风口|新玩法|推荐|来了)$/u.test(title)) {
       const titleTerm = deriveSpecificTitleTerm(title, signal.sourceType);
       if (titleTerm) terms.push(titleTerm);
     }
@@ -136,6 +139,8 @@ function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed
     + Math.min(recentMentions * 10, 30) + Math.min(cluster.independentAuthors * 5, 15) + Math.min(cluster.sourceTypes.length * 5, 15)
     + (seed.kind === "problem" ? 10 : 0) + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
   const score = 70 + noveltyScore;
+  const demandEvidence = seed.kind === "problem" || seed.kind === "search_term" || cluster.sourceTypes.length > 1 || cluster.rawSignalIds.length > 1;
+  const formal = demandEvidence && !(seed.location === "metadata" && cluster.sourceTypes.length === 1);
   const whyNow = [
     cluster.freshness === "rising" ? "7 天内多来源重复出现" : cluster.freshness === "new" ? "7 天内首次发现" : "近期仍有出现",
     `${recentMentions} 次提及`,
@@ -145,9 +150,11 @@ function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed
   return {
     candidateId, term: cluster.primaryTerm, sourceType: signal.sourceType, context: seed.quote,
     reason: `${seed.extractionReason}；${cluster.freshness === "rising" ? "多来源近期重复出现" : "近期首次发现"}；用户表达优先于标题`,
-    lane: "formal", sourceSignalId: signal.id, sourceUrl: signal.sourceUrl,
+    lane: formal ? "formal" : "backup", sourceSignalId: signal.id, sourceUrl: signal.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}), ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
-    trendsUrl: buildTrendsUrl(cluster.primaryTerm, region), score, noveltyScore, whyNow, recentMentions, baselineMentions, missingFields: ["Google Trends 7d", "SERP/供给", "用户/商业证据"],
+    trendsUrl: buildTrendsUrl(cluster.primaryTerm, region), score, noveltyScore, whyNow, recentMentions, baselineMentions, missingFields: formal ? ["Google Trends 7d", "SERP/供给", "用户/商业证据"] : ["用户问题", "第二个独立来源", "Google Trends 7d"],
+    qualificationReason: formal ? "有用户问题或独立来源佐证" : "单一来源的产品/功能实体，暂不进入 Trends 验证池",
+    evidenceKind: seed.kind,
     clusterId: cluster.id, evidenceQuote: seed.quote.slice(0, 220), freshness: cluster.freshness, sourceCount: cluster.sourceTypes.length,
   };
 }
@@ -183,7 +190,7 @@ function deriveSpecificTitleTerm(title: string, sourceType: RawSignal["sourceTyp
     .replace(/(?:风向标|新玩法|实操流程|使用教程|教程|案例)$/u, "")
     .trim();
   if (!candidate || candidate.length < 2 || candidate.length > 24) return undefined;
-  if (/^(AI|出海|赚钱|创业|带货|短视频)$/iu.test(candidate)) return undefined;
+  if (/^(AI|出海|赚钱|创业|带货|短视频|AI\s+(?:workflow|工作流|tool|tools|工具))$/iu.test(candidate)) return undefined;
   return candidate;
 }
 

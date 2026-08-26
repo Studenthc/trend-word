@@ -15,9 +15,9 @@ export type MarkdownReportInput = {
 const DAILY_REPORT_FORMAL_LIMIT = 10;
 
 export function renderMarkdownReport(input: MarkdownReportInput): string {
-  const lines = [`# 新词机会雷达 - ${input.summary.date}`, "", "## 今日验证池", ""];
+  const lines = [`# 新词机会雷达 - ${input.summary.date}`, ""];
   if (input.candidates) lines.push(...candidateSection(input.candidates));
-  else lines.push("- 无（没有生成候选队列）");
+  else lines.push("## 今天先查这 10 个词", "", "- 无（没有生成候选队列）");
 
   lines.push("", "## 来源状态", "");
   for (const source of input.sourceHealth) lines.push(...sourceStatusLines(source, input.discoverySummary));
@@ -60,12 +60,12 @@ function dataLocationLines(summary: RunSummary): string[] {
 }
 
 function candidateSection(queue: CandidateQueue): string[] {
-  const lines: string[] = [];
-  if (queue.formal.length === 0) lines.push("- 无（当前没有满足正文上下文门槛的候选）");
+  const lines: string[] = ["## 今天先查这 10 个词", ""];
+  if (queue.formal.length === 0) lines.push("- 无（当前没有满足用户需求或多来源佐证门槛的候选）");
   queue.formal.slice(0, DAILY_REPORT_FORMAL_LIMIT).forEach((candidate, index) => lines.push(...candidateLines(candidate, index + 1)));
   if (queue.backup.length > 0) {
-    lines.push("", "## 新发现但证据不足", "");
-    for (const candidate of queue.backup.slice(0, DAILY_REPORT_FORMAL_LIMIT)) lines.push(`- ${candidate.term} · ${candidate.missingFields.join("、")} · [原文](${candidate.sourceUrl})`);
+    lines.push("", "## 观察候选", "");
+    for (const candidate of queue.backup.slice(0, DAILY_REPORT_FORMAL_LIMIT)) lines.push(`- ${candidate.term} · ${candidate.qualificationReason ?? candidate.reason} · 尚缺：${candidate.missingFields.join("、")} · [原文](${candidate.sourceUrl})`);
   }
   return lines;
 }
