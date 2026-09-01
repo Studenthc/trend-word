@@ -1,6 +1,7 @@
 import { runRadar, type RadarRunOptions } from "./index.js";
 import { appendCandidateFeedback } from "./storage/feedback-store.js";
 import { RunStore } from "./storage/run-store.js";
+import { inheritLaunchdEnvironment } from "./runtime-env.js";
 
 export function parseCliArgs(args: string[]): RadarRunOptions {
   if (args[0] === "--") args = args.slice(1);
@@ -29,6 +30,7 @@ function usageError(message: string): Error {
 
 export async function main(args = process.argv.slice(2)): Promise<number> {
   try {
+    inheritLaunchdEnvironment();
     if (args[0] === "feedback") return await feedbackMain(args.slice(1));
     if (args[0] === "verify") return await verifyMain(args.slice(1));
     const result = await runRadar(parseCliArgs(args));
@@ -64,7 +66,8 @@ async function verifyMain(args: string[]): Promise<number> {
   if (!candidateId || !result) throw usageError("verify requires --candidate and --result rising|flat|declining|breakout|no_data");
   const store = new RunStore(workspaceRoot, date);
   try {
-    const candidates = JSON.parse(await readFile(path.join(workspaceRoot, "data", "runs", date, "candidates.json"), "utf8")) as Array<{ candidateId?: string }>;
+    const parsed = JSON.parse(await readFile(path.join(workspaceRoot, "data", "runs", date, "candidates.json"), "utf8")) as Array<{ candidateId?: string }> | { formal?: Array<{ candidateId?: string }>; backup?: Array<{ candidateId?: string }> };
+    const candidates = Array.isArray(parsed) ? parsed : [...(parsed.formal ?? []), ...(parsed.backup ?? [])];
     if (!candidates.some((item) => item.candidateId === candidateId)) throw new Error(`unknown candidate ${candidateId} in run ${date}`);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("unknown candidate")) throw error;

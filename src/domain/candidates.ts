@@ -1,7 +1,9 @@
-import type { Expression, ExpressionCluster, RawSignal, SeedTerm } from "../types.js";
+import type { DemandExpression, Expression, ExpressionCluster, RawSignal, SeedTerm, SourceRole, SourceType, TrendVerification } from "../types.js";
 import { normalizeExpression } from "./normalize.js";
 import { clusterSeedTerms } from "./expression-clusters.js";
 import { extractSeedTerms } from "./seed-terms.js";
+
+const broadCapabilityPattern = /^(?:intelligent agents?|ai tools?|automation|tool|platform|application|agent|workflow)$/iu;
 
 export type CandidateFeedback = {
   candidateId: string;
@@ -29,11 +31,15 @@ export type RadarCandidate = {
   freshness?: ExpressionCluster["freshness"];
   sourceCount?: number;
   qualificationReason?: string;
-  evidenceKind?: "problem" | "search_term" | "concept" | "product" | "feature" | "model" | "play";
+  evidenceKind?: "problem" | "search_term" | "concept" | "product" | "feature" | "model" | "play" | "task" | "pain" | "alternative";
+  evidenceOrigin?: DemandExpression["origin"];
+  evidenceTransformation?: string;
+  evidencePrecision?: NonNullable<DemandExpression["evidencePrecision"]>;
   noveltyScore?: number;
   whyNow?: string[];
   recentMentions?: number;
   baselineMentions?: number;
+  trendVerification?: TrendVerification;
 };
 
 export type CandidateQueue = { formal: RadarCandidate[]; backup: RadarCandidate[] };
@@ -47,6 +53,8 @@ export type CandidateQueueOptions = {
   seedTerms?: SeedTerm[];
   clusters?: ExpressionCluster[];
   previousExpressions?: Expression[];
+  sourceRoles?: Partial<Record<SourceType, SourceRole>>;
+  demandExpressions?: DemandExpression[];
 };
 
 export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueueOptions = {}): CandidateQueue {
@@ -58,47 +66,74 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
   const clusters = options.clusters ?? clusterSeedTerms(seedTerms, signals, options.now ?? new Date().toISOString());
   const signalById = new Map(signals.map((signal) => [signal.id, signal]));
 
+  for (const demand of options.demandExpressions ?? []) {
+    const signal = signalById.get(demand.rawSignalId);
+    if (!signal || demand.qualityState === "rejected") continue;
+    const candidate = candidateForDemand(signal, demand, now, options.region ?? "CN", feedback);
+    addCandidate(candidate.lane === "formal" ? formal : backup, candidate);
+  }
+
   for (const cluster of clusters) {
     const signal = signalById.get(cluster.rawSignalIds[0] ?? "");
     if (!signal || signal.evidenceStatus === "failed") continue;
     const seed = seedTerms.find((item) => item.id === cluster.seedTermIds[0]);
     if (!seed) continue;
-    const clusterCandidate = candidateForCluster(signal, cluster, seed, now, options.region ?? "CN", feedback, options.previousExpressions ?? []);
+    const clusterCandidate = candidateForCluster(signal, cluster, seed, now, options.region ?? "CN", feedback, options.previousExpressions ?? [], options.sourceRoles ?? {});
     addCandidate(clusterCandidate.lane === "formal" ? formal : backup, clusterCandidate);
   }
 
   for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
     if (signal.sourceType === "github" && !isRecentGitHubSignal(signal.publishedAt, now)) continue;
-    if (seedTerms.some((item) => item.rawSignalId === signal.id)) continue;
+    if (seedTerms.some((item) => item.rawSignalId === signal.id) || (options.demandExpressions ?? []).some((item) => item.rawSignalId === signal.id)) continue;
     const title = usable(signal.title) ?? usable(signal.body) ?? "";
     if (!title) continue;
     const context = meaningfulContext(signal, title);
-    const terms = context ? extractTerms(context) : [];
+    const terms = context && signal.sourceType !== "github" ? extractTerms(context) : [];
     if (context && terms.length === 0 && signal.sourceType !== "github" && !/(?:风口|新玩法|推荐|来了)$/u.test(title)) {
       const titleTerm = deriveSpecificTitleTerm(title, signal.sourceType);
       if (titleTerm) terms.push(titleTerm);
     }
     if (context && terms.length > 0) {
-      for (const term of terms) addCandidate(formal, candidateFor(signal, term, context, "formal", now, options.region ?? "CN", feedback));
+      for (const term of terms) addCandidate(formal, candidateFor(signal, term, context, "formal", now, options.region ?? "CN", feedback, options.sourceRoles ?? {}));
     } else {
-      addCandidate(backup, candidateFor(signal, title, context || title, "backup", now, options.region ?? "CN", feedback));
+      addCandidate(backup, candidateFor(signal, title, context || title, "backup", now, options.region ?? "CN", feedback, options.sourceRoles ?? {}));
     }
   }
 
-  const sort = (items: RadarCandidate[]) => items.sort((a, b) => b.score - a.score || a.term.localeCompare(b.term, "zh-CN"));
+  const sort = (items: RadarCandidate[]) => items.sort((a, b) => evidencePriority(b) - evidencePriority(a) || b.score - a.score || a.term.localeCompare(b.term, "zh-CN"));
   const formalItems = sort([...formal.values()]);
   const backupItems = sort([...backup.values()]);
   const maxFormal = options.maxFormal ?? 10;
   const maxBackup = options.maxBackup ?? 10;
   return {
     formal: selectDiverseFormal(formalItems.filter((item) => feedback.get(item.candidateId)?.decision !== "skip"), maxFormal),
-    backup: backupItems.slice(0, maxBackup),
+    backup: selectDiverseBackup(backupItems, maxBackup),
   };
 }
 
 function selectDiverseFormal(items: RadarCandidate[], limit: number): RadarCandidate[] {
-  if (items.length <= limit) return items;
   const sourceTypes = [...new Set(items.map((item) => item.sourceType))];
+  const perSource = Math.max(1, Math.min(3, Math.floor(limit / sourceTypes.length)));
+  const selected = new Map<string, RadarCandidate>();
+  const capabilitySignals = new Set<string>();
+  const select = (item: RadarCandidate): void => {
+    if (item.evidenceOrigin === "capability_derived" && capabilitySignals.has(item.sourceSignalId)) return;
+    selected.set(item.candidateId, item);
+    if (item.evidenceOrigin === "capability_derived") capabilitySignals.add(item.sourceSignalId);
+  };
+  for (const sourceType of sourceTypes) {
+    for (const item of items.filter((candidate) => candidate.sourceType === sourceType).slice(0, perSource)) select(item);
+  }
+  for (const item of items) {
+    if (selected.size >= limit) break;
+    select(item);
+  }
+  return [...selected.values()].slice(0, limit);
+}
+
+function selectDiverseBackup(items: RadarCandidate[], limit: number): RadarCandidate[] {
+  if (items.length <= limit) return items;
+  const sourceTypes = [...new Set(items.map((item) => item.sourceType))].sort((a, b) => backupSourcePriority(a) - backupSourcePriority(b));
   const perSource = Math.max(1, Math.min(3, Math.floor(limit / sourceTypes.length)));
   const selected = new Map<string, RadarCandidate>();
   for (const sourceType of sourceTypes) {
@@ -111,7 +146,13 @@ function selectDiverseFormal(items: RadarCandidate[], limit: number): RadarCandi
   return [...selected.values()].slice(0, limit);
 }
 
-function candidateFor(signal: RawSignal, term: string, context: string, lane: RadarCandidate["lane"], now: number, region = "CN", feedback: Map<string, CandidateFeedback>): RadarCandidate {
+function backupSourcePriority(sourceType: SourceType): number {
+  if (["manual", "x-timeline", "reddit-feed"].includes(sourceType)) return 0;
+  if (["github", "producthunt"].includes(sourceType)) return 1;
+  return 2;
+}
+
+function candidateFor(signal: RawSignal, term: string, context: string, lane: RadarCandidate["lane"], now: number, region = "CN", feedback: Map<string, CandidateFeedback>, sourceRoles: Partial<Record<SourceType, SourceRole>> = {}): RadarCandidate {
   const normalized = normalizeExpression(term).normalized;
   const candidateId = `candidate-${normalized}`;
   const decision = feedback.get(candidateId)?.decision;
@@ -120,18 +161,58 @@ function candidateFor(signal: RawSignal, term: string, context: string, lane: Ra
   const missingFields = lane === "formal" ? [] : ["正文上下文"];
   return {
     candidateId, term: term.trim(), sourceType: signal.sourceType, context: context.trim(),
-    reason: lane === "formal" ? "正文出现了具体表达，适合先验证 Google Trends 过去 7 天增速" : "当前只有标题或缺少可抽取的正文表达，等待正文详情后再判断",
+    reason: lane === "formal" ? "正文出现了具体表达，适合先验证 Google Trends 过去 7 天增速" : sourceRoles[signal.sourceType] === "validation" ? "SCYS 只作中文需求验证，等待早期发现源佐证" : "当前只有标题或缺少可抽取的正文表达，等待正文详情后再判断",
     lane, sourceSignalId: signal.id, sourceUrl: signal.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}),
     ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
     trendsUrl: buildTrendsUrl(term.trim(), region), score, missingFields,
     noveltyScore: score, whyNow: lane === "formal" ? ["正文出现具体表达"] : [], recentMentions: signal.publishedAt && freshnessScore(signal.publishedAt, now) > 0 ? 1 : 0, baselineMentions: 0,
+    ...(lane === "backup" && sourceRoles[signal.sourceType] === "validation" ? { qualificationReason: "SCYS 只作中文需求验证，等待早期发现源佐证" } : {}),
   };
 }
 
-function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed: SeedTerm, now: number, region: string, feedback: Map<string, CandidateFeedback>, previousExpressions: Expression[]): RadarCandidate {
+function candidateForDemand(signal: RawSignal, demand: DemandExpression, now: number, region: string, feedback: Map<string, CandidateFeedback>): RadarCandidate {
+  const candidateId = `candidate-demand-${demand.origin}-${demand.normalizedText}`;
+  const decision = feedback.get(candidateId)?.decision;
+  const recent = signal.publishedAt ? freshnessScore(signal.publishedAt, now) : 0;
+  const precision = demand.evidencePrecision ?? inferEvidencePrecision(demand);
+  const normalizedDemandText = demand.text.trim();
+  const broadCapability = demand.origin === "capability_derived" && isBroadCapability(normalizedDemandText);
+  const score = 140 + demand.qualityScore + recent + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
+  const formal = demand.qualityState !== "rejected" && precision !== "inferred" && !broadCapability && decision !== "false_positive";
+  const missingFields = formal
+    ? ["Google Trends 7d", "SERP/供给", ...(demand.origin === "capability_derived" ? ["用户原话/替代诉求待确认"] : ["用户/商业证据"])]
+    : broadCapability ? ["验证真实搜索表达", "Google Trends 7d", "用户原话/替代诉求待确认"] : ["验证真实搜索表达", "Google Trends 7d", "用户/商业证据"];
+  return {
+    candidateId, term: demand.text, sourceType: signal.sourceType, context: demand.evidenceQuote,
+    reason: formal ? demand.origin === "capability_derived" ? "产品能力可转成搜索词，优先验证 Google Trends 过去 7 天增速" : demand.transformation === "保留原文需求表达" ? "有原文任务、痛点或替代关系，优先验证 Google Trends 过去 7 天增速" : "社媒观点已归纳为搜索词，优先验证 Google Trends 过去 7 天增速" : broadCapability ? "产品能力词过宽，需先确认用户真实搜索表达" : "需求表达证据待人工确认",
+    lane: formal ? "formal" : "backup", sourceSignalId: signal.id, sourceUrl: demand.sourceUrl,
+    ...(signal.author?.name ? { authorName: signal.author.name } : {}), ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
+    trendsUrl: buildTrendsUrl(demand.text, region), score, missingFields,
+    evidenceQuote: demand.evidenceQuote, evidenceKind: demand.type, evidenceOrigin: demand.origin, evidenceTransformation: demand.transformation, evidencePrecision: precision, noveltyScore: score, whyNow: [demand.origin === "capability_derived" ? "产品能力可转成搜索词" : precision === "exact" ? "正文出现明确需求表达" : precision === "semantic" ? "原文语义可归纳为搜索词" : "社媒出现待验证的新说法"], recentMentions: 1, baselineMentions: 0,
+  };
+}
+
+function inferEvidencePrecision(demand: DemandExpression): NonNullable<DemandExpression["evidencePrecision"]> {
+  if (demand.transformation === "保留原文需求表达") return "exact";
+  return demand.origin === "capability_derived" ? "semantic" : "inferred";
+}
+
+function isBroadCapability(value: string): boolean {
+  if (broadCapabilityPattern.test(value)) return true;
+  if (value.split(/\s+/u).filter(Boolean).length > 7) return true;
+  return /^(?:ai|ai tools?|automation|tool|platform|application|agent|workflow|internal tools?)$/iu.test(value.trim());
+}
+
+function evidencePriority(candidate: RadarCandidate): number {
+  if (candidate.evidenceOrigin === "user_evidence") return 2;
+  if (candidate.evidenceOrigin === "capability_derived") return 1;
+  return 0;
+}
+
+function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed: SeedTerm, now: number, region: string, feedback: Map<string, CandidateFeedback>, previousExpressions: Expression[], sourceRoles: Partial<Record<SourceType, SourceRole>>): RadarCandidate {
   const normalized = normalizeExpression(cluster.primaryTerm).normalized;
-  const candidateId = `candidate-${normalized}`;
+  const candidateId = `candidate-${seed.location === "metadata" ? "entity-" : ""}${normalized}`;
   const decision = feedback.get(candidateId)?.decision;
   const recentMentions = cluster.rawSignalIds.length;
   const baselineMentions = previousExpressions.find((item) => item.normalizedText === normalized)?.occurrences.length ?? 0;
@@ -139,8 +220,11 @@ function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed
     + Math.min(recentMentions * 10, 30) + Math.min(cluster.independentAuthors * 5, 15) + Math.min(cluster.sourceTypes.length * 5, 15)
     + (seed.kind === "problem" ? 10 : 0) + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
   const score = 70 + noveltyScore;
-  const demandEvidence = seed.kind === "problem" || seed.kind === "search_term" || cluster.sourceTypes.length > 1 || cluster.rawSignalIds.length > 1;
-  const formal = demandEvidence && !(seed.location === "metadata" && cluster.sourceTypes.length === 1);
+  const explicitQuestion = /(?:用户问|有没有|如何|怎么|求|想找|需要找|谁有)/u.test(seed.quote);
+  const demandEvidence = seed.kind === "problem" || seed.kind === "search_term" || explicitQuestion || cluster.sourceTypes.length > 1 || cluster.rawSignalIds.length > 1;
+  const role = sourceRoles[signal.sourceType] ?? "discovery";
+  const validationOnly = role === "validation" && cluster.sourceTypes.every((sourceType) => (sourceRoles[sourceType] ?? "discovery") === "validation");
+  const formal = demandEvidence && !(seed.location === "metadata" && cluster.sourceTypes.length === 1) && (!validationOnly || seed.kind === "problem" || seed.kind === "search_term" || explicitQuestion);
   const whyNow = [
     cluster.freshness === "rising" ? "7 天内多来源重复出现" : cluster.freshness === "new" ? "7 天内首次发现" : "近期仍有出现",
     `${recentMentions} 次提及`,
@@ -153,7 +237,7 @@ function candidateForCluster(signal: RawSignal, cluster: ExpressionCluster, seed
     lane: formal ? "formal" : "backup", sourceSignalId: signal.id, sourceUrl: signal.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}), ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
     trendsUrl: buildTrendsUrl(cluster.primaryTerm, region), score, noveltyScore, whyNow, recentMentions, baselineMentions, missingFields: formal ? ["Google Trends 7d", "SERP/供给", "用户/商业证据"] : ["用户问题", "第二个独立来源", "Google Trends 7d"],
-    qualificationReason: formal ? "有用户问题或独立来源佐证" : "单一来源的产品/功能实体，暂不进入 Trends 验证池",
+    qualificationReason: formal ? "有用户问题或独立来源佐证" : validationOnly ? "SCYS 只作中文需求验证，产品/功能名需先有早期发现源佐证" : "单一来源的产品/功能实体，暂不进入 Trends 验证池",
     evidenceKind: seed.kind,
     clusterId: cluster.id, evidenceQuote: seed.quote.slice(0, 220), freshness: cluster.freshness, sourceCount: cluster.sourceTypes.length,
   };
@@ -186,7 +270,7 @@ function extractTerms(context: string): string[] {
 
 function deriveSpecificTitleTerm(title: string, sourceType: RawSignal["sourceType"] = "scys-mcp"): string | undefined {
   if (sourceType === "github") return deriveGitHubTerm(title);
-  const candidate = title.split(/[：:｜|丨-]/u)[0]?.trim()
+  const candidate = title.split(/[：:｜|丨]|\s+-\s+/u)[0]?.trim()
     .replace(/(?:风向标|新玩法|实操流程|使用教程|教程|案例)$/u, "")
     .trim();
   if (!candidate || candidate.length < 2 || candidate.length > 24) return undefined;
@@ -199,6 +283,7 @@ function deriveGitHubTerm(title: string): string | undefined {
   if (!repository || repository.length < 3 || repository.length > 40) return undefined;
   if (/^(awesome|top|list|lists|collection|collections|ai tools?|agents?|mcp|tool|tools)(?:\b|\s)/iu.test(repository)) return undefined;
   if (/(?:toolkit|toolbox|beginners?|tutorial|course|prompts?[- ]and[- ]models|engineering|air[- ]conditioner)/iu.test(repository)) return undefined;
+  if (/^(?:agent|mcp|agent skills|agency agents|ai (?:research|sdk) tools|ai tools mng)$/iu.test(repository)) return undefined;
   return repository;
 }
 

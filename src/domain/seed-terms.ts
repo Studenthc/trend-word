@@ -1,7 +1,7 @@
 import type { RawSignal, SeedTerm, SeedTermKind, SeedTermLocation } from "../types.js";
 import { expressionKey, normalizeExpression } from "./normalize.js";
 
-const noise = new Set(["ai", "工具", "新玩法", "风口", "需求", "出海", "赚钱", "创业", "短视频", "工作流", "ai workflow", "ai 工作流", "workflow automation", "ai tools", "ai tool", "agent workflow"]);
+const noise = new Set(["ai", "工具", "新玩法", "风口", "需求", "出海", "赚钱", "创业", "短视频", "工作流", "ai workflow", "ai 工作流", "workflow automation", "ai tools", "ai tool", "agent workflow", "agent", "mcp", "agent skills", "agency agents", "ai research tools", "ai sdk tools", "ai tools mng", "air conditioner"]);
 const phraseMarkers = /(?:工具|小程序|生成器|修图|记账|翻译器|模板|generator|tool|app|game|workflow|model|skill)/iu;
 const problemMarkers = /(?<!需)(?:求|需要|怎么|无法|打不开|保存不了|保存失败|尺寸不对|太贵|卡顿|失败|找不到)/u;
 
@@ -14,15 +14,17 @@ export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
   for (const [location, value] of fields) {
     const text = value?.trim();
     if (!text) continue;
-    for (const match of text.matchAll(/[「“‘"《`]([^」”’"》`]{2,40})[」”’"》`]/gu)) {
-      const term = match[1]?.trim();
-      if (term && (phraseMarkers.test(term) || /[A-Za-z]/u.test(term))) candidates.push({ text: term, location, quote: compactQuote(text, term), reason: "原文明确标记的新表达" });
+    if (signal.sourceType !== "github") {
+      for (const match of text.matchAll(/[「“‘"《`]([^」”’"》`]{2,40})[」”’"》`]/gu)) {
+        const term = match[1]?.trim();
+        if (term && (phraseMarkers.test(term) || /[A-Za-z]/u.test(term))) candidates.push({ text: term, location, quote: compactQuote(text, term), reason: "原文明确标记的新表达" });
+      }
+      for (const match of text.matchAll(/#([\p{L}\p{N}_-]{2,40})/gu)) {
+        const term = match[1]?.trim();
+        if (term) candidates.push({ text: term, location, quote: compactQuote(text, term), reason: "原文标签表达" });
+      }
     }
-    for (const match of text.matchAll(/#([\p{L}\p{N}_-]{2,40})/gu)) {
-      const term = match[1]?.trim();
-      if (term) candidates.push({ text: term, location, quote: compactQuote(text, term), reason: "原文标签表达" });
-    }
-    if (location !== "title") {
+    if (location !== "title" && signal.sourceType !== "github") {
       for (const sentence of splitSentences(text)) {
         if (problemMarkers.test(sentence)) {
           for (const term of problemTerms(sentence)) candidates.push({ text: term, location, quote: sentence, reason: "用户问题或失败反馈" });
@@ -32,11 +34,14 @@ export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
       }
     }
   }
-  if (signal.sourceType === "github" && signal.title) {
+  if (["manual", "x-timeline", "reddit-feed"].includes(signal.sourceType) && signal.title && hasDistinctBodyContext(signal, signal.title) && isConcreteEnglishTitle(signal.title)) {
+    candidates.push({ text: signal.title, location: "title", quote: signal.title, reason: "社媒标题中的具体新表达" });
+  }
+  if (signal.sourceType === "github" && signal.title && !isFeedbackSignal(signal)) {
     const repo = signal.title.split("/").pop()?.replace(/[-_]+/gu, " ").trim();
     if (repo && !isDiscoveryNoise(repo) && !/(?:awesome|tutorial|course|beginner|toolkit|toolbox|collection|list)/iu.test(repo)) candidates.push({ text: repo, location: "metadata", quote: signal.title, reason: "GitHub 新仓库实体" });
   }
-  if (signal.sourceType === "producthunt" && signal.title && !isDiscoveryNoise(signal.title)) {
+  if (signal.sourceType === "producthunt" && signal.title && !isFeedbackSignal(signal) && !isDiscoveryNoise(signal.title)) {
     const productName = signal.title.split(/[:：|｜]/u)[0]?.trim() ?? signal.title;
     if (!isDiscoveryNoise(productName)) candidates.push({ text: productName, location: "metadata", quote: signal.title, reason: "Product Hunt 新产品实体" });
   }
@@ -69,15 +74,16 @@ export function isDiscoveryNoise(text: string): boolean {
 
 function contextualTerms(sentence: string): string[] {
   if (!/[\u3400-\u9FFF]/u.test(sentence)) return [];
+  const modelNames = sentence.match(/\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\b/gu)?.filter((item) => /(?:model|opus)/iu.test(item)) ?? [];
   const matches = sentence.match(/[\p{L}\p{N}][\p{L}\p{N} +_-]{1,38}(?:工具|小程序|生成器|修图|记账|翻译器|模板|generator|tool|app|game|workflow|model|skill)/giu) ?? [];
-  return matches.map((item) => item.trim()).filter((item) => !/^(?:a|an|the|for|with|new)\s/iu.test(item));
+  const cleaned = [...modelNames, ...matches].map((item) => item.trim().replace(/^(?:今天我们发布了|我们发布了|发布了)\s*/u, ""));
+  return [...new Set(cleaned)].filter((item) => !/^(?:a|an|the|for|with|new)\s/iu.test(item) && !cleaned.some((longer) => longer !== item && longer.startsWith(item)));
 }
 
 function naturalLanguageTerms(sentence: string): string[] {
   if (/[「“‘"《`]/u.test(sentence)) return [];
   const exact = sentence.match(/AI\s+原生工作流|一人公司自动化|陪跑式交付/giu) ?? [];
-  const matches = [...exact, ...(sentence.match(/(?:[\u3400-\u9FFF]{2,6}(?:工作流|自动化|带货|切片|知识库|代理|模型|小程序|生成器|修图|记账)|\b[A-Za-z][A-Za-z0-9-]{1,20}\s+(?:workflow|automation|agent|model|generator)\b)/giu) ?? [])];
-  return matches.map((item) => item.trim()
+  return exact.map((item) => item.trim()
     .replace(/^(?:最近大家开始做|很多人还在讨论|大家开始讨论|有人说|大家开始|还在讨论)/u, "")
     .replace(/^(?:并|而且|但是|所以|然后)/u, "")
     .trim())
@@ -86,9 +92,27 @@ function naturalLanguageTerms(sentence: string): string[] {
 
 function problemTerms(sentence: string): string[] {
   const matches = sentence.match(/(?:打不开|保存不了|保存失败|尺寸不对|太贵|卡顿|找不到|无法[^，。！？]{0,16}|需要[^，。！？]{0,24}|(?<!需)求[^，。！？]{0,24})/gu) ?? [];
-  return matches.map((item) => item.replace(/^(?:有没有|是否有|有没有人)/u, "").trim()).filter(Boolean);
+  return matches.map((item) => item.replace(/^(?:有没有|是否有|有没有人)/u, "").trim())
+    .filter((item) => Boolean(item) && !/(?:API|令牌)/iu.test(item) && !/^需要(?:添加|配置|输入|填写|提供)/u.test(item));
 }
 
 function splitSentences(value: string): string[] { return value.split(/[。！？!?\n]/u).map((item) => item.trim()).filter(Boolean); }
 function clean(value: string): string { return value.replace(/[「」“”‘’"《》`#]/gu, "").replace(/^(?:有没有|是否有|有没有人)/u, "").replace(/\s+/gu, " ").trim(); }
 function compactQuote(value: string, term: string): string { const index = value.toLocaleLowerCase().indexOf(term.toLocaleLowerCase()); const start = Math.max(0, index - 60); return value.slice(start, start + 180).trim(); }
+
+function isFeedbackSignal(signal: RawSignal): boolean { return signal.signalKind === "feedback" || signal.tags?.includes("feedback") === true; }
+
+function hasDistinctBodyContext(signal: RawSignal, title: string): boolean {
+  const normalizedTitle = normalizeExpression(title).normalized;
+  return [signal.body, signal.excerpt].some((value) => {
+    const text = value?.trim();
+    return Boolean(text && normalizeExpression(text).normalized !== normalizedTitle);
+  });
+}
+
+function isConcreteEnglishTitle(title: string): boolean {
+  const text = title.trim();
+  if (text.length < 3 || text.length > 40 || !/[A-Za-z]/u.test(text) || /https?:\/\//iu.test(text)) return false;
+  const words = text.match(/[A-Za-z][A-Za-z0-9-]*/gu) ?? [];
+  return words.length >= 2;
+}

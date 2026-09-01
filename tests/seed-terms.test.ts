@@ -41,4 +41,64 @@ describe("extractSeedTerms", () => {
     expect(terms.map((item) => item.text)).toContain("一人公司自动化");
     expect(terms.map((item) => item.text)).not.toEqual(expect.arrayContaining(["AI tools", "Workflow automation"]));
   });
+
+  it("does not mine English grammar fragments from GitHub descriptions", () => {
+    const terms = extractSeedTerms(signal({
+      sourceType: "github",
+      title: "microsoft/mcp-launchpad",
+      body: "This open-source curriculum introduces the fundamentals of Model Context Protocol through real-world examples.",
+    }));
+    expect(terms.map((item) => item.text)).toContain("mcp launchpad");
+    expect(terms.map((item) => item.text)).not.toEqual(expect.arrayContaining(["of Model", "the agent", "Model"]));
+    const readmeNoise = extractSeedTerms(signal({
+      sourceType: "github",
+      title: "jlcodes99/cockpit-tools",
+      body: "<img src=\"docs/banner.png\"> Install `./run.sh` and query `/v1/models`. [APIKEY.FUN](https://example.com)",
+    }));
+    for (const term of ["docs/banner.png", "./run.sh", "/v1/models", "APIKEY.FUN"]) {
+      expect(readmeNoise.map((item) => item.text)).not.toContain(term);
+    }
+  });
+
+  it("does not turn a social post into Chinese sentence fragments", () => {
+    const terms = extractSeedTerms(signal({
+      sourceType: "manual",
+      sourceName: "X web list",
+      sourceUrl: "https://x.com/gregisenberg/status/1",
+      body: "我认为冷邮件即将消亡。每个电子邮件收件箱很快都会有一个代理守门人，唯一通过的方法将是热介绍，或者足够有趣以至于代理决定你值得它主人花时间。",
+    }));
+    expect(terms.map((item) => item.text)).not.toEqual(expect.arrayContaining(["快都会有一个代理", "够有趣以至于代理"]));
+    const workflowTerms = extractSeedTerms(signal({
+      sourceType: "manual",
+      sourceName: "X web list",
+      sourceUrl: "https://x.com/levelsio/status/2",
+      body: "它们一直都有很棒的 API，你只需要添加一个 API 令牌，就能完成几乎所有手动操作的事情。",
+    }));
+    expect(workflowTerms.map((item) => item.text)).not.toContain("需要添加一个 API 令牌");
+  });
+
+  it("keeps complete hyphenated model names from release announcements", () => {
+    const terms = extractSeedTerms(signal({
+      sourceType: "manual", sourceName: "X web list", sourceUrl: "https://x.com/abliteration_ai/status/1",
+      title: "abliterated-model-large-v2", body: "今天我们发布了 abliterated-model-large-v2。",
+    }));
+    expect(terms.map((item) => item.text)).toContain("abliterated-model-large-v2");
+    expect(terms.map((item) => item.text)).not.toContain("今天我们发布了 abliterated-model");
+  });
+
+  it("extracts a concrete English capability phrase from a manual social title", () => {
+    const terms = extractSeedTerms(signal({
+      sourceType: "manual", sourceName: "X web list", sourceUrl: "https://x.com/dannypostma/status/1",
+      title: "digital twin seat availability", body: "一个真实体育场的数字孪生体显示每个座位的实际价格和可用性。",
+    }));
+    expect(terms.map((item) => item.text)).toContain("digital twin seat availability");
+  });
+
+  it("does not turn a GitHub feedback title into a repository entity", () => {
+    const terms = extractSeedTerms(signal({
+      sourceType: "github", sourceName: "GitHub Issues", sourceUrl: "https://github.com/acme/flowpilot/issues/12", externalId: "acme/flowpilot#12",
+      title: "Looking for a Zapier alternative", body: "I need an alternative to Zapier.", signalKind: "feedback", parentSignalId: "github-flowpilot", tags: ["feedback", "github-issue"],
+    }));
+    expect(terms).toEqual([]);
+  });
 });

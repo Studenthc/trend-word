@@ -10,16 +10,17 @@ export type LoadConfigOptions = {
 
 const defaults: RadarConfig = {
   sources: {
-    required: ["scys-mcp", "producthunt", "github"],
+    required: ["producthunt", "github"],
     bestEffort: ["x-timeline", "reddit-feed"],
+    validation: ["scys-mcp"],
     manual: true,
   },
   scys: { enabled: true, queries: ["AI", "带货", "视频号"] },
   discovery: { recentDays: 7, maxSourcesPerQuery: 3 },
   producthunt: { enabled: true, limit: 50 },
   github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
-  xTimeline: { enabled: false, handles: [] },
-  redditFeed: { enabled: false, communities: [] },
+  xTimeline: { enabled: true, handles: ["OpenAI", "AnthropicAI", "karpathy", "sama", "levelsio"] },
+  redditFeed: { enabled: true, communities: ["Entrepreneur", "SaaS", "artificial"] },
   googleTrends: { mode: "manual-or-optional", region: "US" },
   report: { maxActionable: 5, maxWatch: 20, maxVerificationItems: 10 },
 };

@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { appendJsonl } from "../src/storage/jsonl.js";
 import { RunStore } from "../src/storage/run-store.js";
-import type { Evidence, Opportunity, RawSignal, RunSummary } from "../src/types.js";
+import type { DemandExpression, Evidence, Opportunity, RawSignal, RunSummary } from "../src/types.js";
 
 async function createTempRunStore(): Promise<RunStore> {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "trend-word-storage-"));
@@ -75,6 +75,15 @@ function runSummary(): RunSummary {
 }
 
 describe("RunStore", () => {
+  it("stores and validates demand expression projections", async () => {
+    const store = await createTempRunStore();
+    const value: DemandExpression[] = [{
+      id: "demand-ph-1-0", text: "replace Zapier", normalizedText: "replace zapier", type: "alternative", rawSignalId: "signal-a", sourceEntityId: "entity-ph-1", sourceType: "producthunt", sourceUrl: "https://example.com/ph-1", evidenceQuote: "Users replace Zapier", evidenceLocation: "body", evidenceGrade: "direct", qualityState: "verified", qualityScore: 90, origin: "user_evidence", sourceText: "Users replace Zapier", transformation: "保留原文需求表达", firstSeenAt: "2026-08-24T00:00:00.000Z",
+    }];
+    await store.writeProjection("demand-expressions", value);
+    await expect(store.readProjection<DemandExpression[]>("demand-expressions")).resolves.toEqual(value);
+  });
+
   it("appends and reads raw signals without changing record order", async () => {
     const store = await createTempRunStore();
 
