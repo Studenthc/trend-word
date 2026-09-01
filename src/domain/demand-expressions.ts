@@ -21,14 +21,16 @@ export function extractDemandExpressions(signal: RawSignal): DemandExpression[] 
   if (["manual", "x-timeline", "reddit-feed"].includes(signal.sourceType)) candidates.push(...extractSocialDemands(body));
   if (isFeedbackSignal(signal)) candidates.push(...extractFeedbackDemands(body));
   for (const quote of splitSentences(body)) {
-    addMatch(candidates, quote, /\b(?:to|for|and)\s+(automate|manage|create|generate|organize|translate)\s+([^.!?]{3,80}?)(?=\s+(?:and|but|for|to)\b|$)/iu, "task", (match) => `${match[1] ?? ""} ${match[2] ?? ""}`);
-    addMatch(candidates, quote, /\b(?:automating|managing|creating|generating|organizing|translating)\s+([^.!?]{3,80})$/iu, "task", (match) => match[0] ?? "");
-    addMatch(candidates, quote, /\b(?:replace|alternative to)\s+([A-Za-z][A-Za-z0-9_-]{1,40})(?=\s+(?:and|but|with|to)\b|$)/iu, "alternative", (match) => `replace ${match[1]}`);
-    addMatch(candidates, quote, /\b(?:users?|teams?|makers?)\s+(?:need|want)\s+(?:(?:a|an|the)\b\s+)?([^.!?]{3,80})/iu, "pain", (match) => match[1] ?? "");
-    addMatch(candidates, quote, /\basks?\s+for\s+(?:a|an|the)\s+([^.!?]{3,80}?)(?=\s+instead of\b|$)/iu, "pain", (match) => match[1] ?? "");
-    addMatch(candidates, quote, /\b(?:self-hosted|open-source)\s+([^.!?]{3,70}?\b(?:automation|workflow|tool|app|generator|platform))\b/iu, "task", (match) => `${match[0]}`);
-    const capability = allowCapabilityDerivation && !isFeedbackSignal(signal) && ["producthunt", "github"].includes(signal.sourceType) && !hasUserEvidence(quote) ? deriveCapabilityQuery(quote) : undefined;
-    if (capability) candidates.push({ text: capability.text, type: "task", quote, origin: "capability_derived", transformation: capability.transformation, evidencePrecision: "semantic" });
+    if (!isFeedbackSignal(signal)) {
+      addMatch(candidates, quote, /\b(?:to|for|and)\s+(automate|manage|create|generate|organize|translate)\s+([^.!?]{3,80}?)(?=\s+(?:and|but|for|to)\b|$)/iu, "task", (match) => `${match[1] ?? ""} ${match[2] ?? ""}`);
+      addMatch(candidates, quote, /\b(?:automating|managing|creating|generating|organizing|translating)\s+([^.!?]{3,80})$/iu, "task", (match) => match[0] ?? "");
+      addMatch(candidates, quote, /\b(?:replace|alternative to)\s+([A-Za-z][A-Za-z0-9_-]{1,40})(?=\s+(?:and|but|with|to)\b|$)/iu, "alternative", (match) => `replace ${match[1]}`);
+      addMatch(candidates, quote, /\b(?:users?|teams?|makers?)\s+(?:need|want)\s+(?:(?:a|an|the)\b\s+)?([^.!?]{3,80})/iu, "pain", (match) => match[1] ?? "");
+      addMatch(candidates, quote, /\basks?\s+for\s+(?:a|an|the)\s+([^.!?]{3,80}?)(?=\s+instead of\b|$)/iu, "pain", (match) => match[1] ?? "");
+      addMatch(candidates, quote, /\b(?:self-hosted|open-source)\s+([^.!?]{3,70}?\b(?:automation|workflow|tool|app|generator|platform))\b/iu, "task", (match) => `${match[0]}`);
+      const capability = allowCapabilityDerivation && ["producthunt", "github"].includes(signal.sourceType) && !hasUserEvidence(quote) ? deriveCapabilityQuery(quote) : undefined;
+      if (capability) candidates.push({ text: capability.text, type: "task", quote, origin: "capability_derived", transformation: capability.transformation, evidencePrecision: "semantic" });
+    }
   }
   const seen = new Set<string>();
   return candidates.flatMap((candidate) => {
@@ -95,14 +97,22 @@ function extractFeedbackDemands(body: string): ExtractedDemand[] {
   const candidates: ExtractedDemand[] = [];
   for (const quote of splitSentences(body)) {
     const request = quote.match(/\b(?:I|we)\s+(?:need|want)\s+(?:(?:a|an|the)\s+)?(?:way\s+to\s+)?([^.!?]+)$/iu);
-    if (request?.[1] && !/(?:alternative to|replace)\b/iu.test(request[1])) candidates.push({ text: request[1], type: "task", quote, origin: "user_evidence", transformation: "保留 Issue/评论中的第一人称需求表达", evidencePrecision: "exact" });
+    const requestText = request?.[1] && !/(?:alternative to|replace)\b/iu.test(request[1]) ? compactFeedbackQuery(request[1]) : undefined;
+    if (requestText) candidates.push({ text: requestText, type: "task", quote, origin: "user_evidence", transformation: "将 Issue/评论中的第一人称需求压缩为短任务词", evidencePrecision: "exact" });
     const lookingFor = quote.match(/\b(?:(?:I|we|users?)\s+(?:am|are)\s+)?looking\s+for\s+(?:(?:a|an|the)\s+)?([^.!?]+)$/iu);
-    if (lookingFor?.[1]) candidates.push({ text: lookingFor[1], type: "task", quote, origin: "user_evidence", transformation: "保留 Issue/评论中的寻找表达", evidencePrecision: "exact" });
+    const lookingForText = lookingFor?.[1] ? compactFeedbackQuery(lookingFor[1]) : undefined;
+    if (lookingForText) candidates.push({ text: lookingForText, type: "task", quote, origin: "user_evidence", transformation: "将 Issue/评论中的寻找表达压缩为短需求词", evidencePrecision: "exact" });
     const featureRequest = quote.match(/\bfeature\s+request\s*[:\-]?\s*(?:please\s+)?([^.!?]+)$/iu);
-    if (featureRequest?.[1]) candidates.push({ text: featureRequest[1], type: "task", quote, origin: "user_evidence", transformation: "保留 Issue/评论中的功能请求表达", evidencePrecision: "exact" });
+    const featureRequestText = featureRequest?.[1] ? compactFeedbackQuery(featureRequest[1]) : undefined;
+    if (featureRequestText) candidates.push({ text: featureRequestText, type: "task", quote, origin: "user_evidence", transformation: "将 Issue/评论中的功能请求压缩为短任务词", evidencePrecision: "exact" });
     const howDoI = quote.match(/\bhow\s+do\s+i\s+([^.!?]+)$/iu);
-    if (howDoI?.[1]) candidates.push({ text: howDoI[1], type: "task", quote, origin: "user_evidence", transformation: "保留 Issue/评论中的任务提问表达", evidencePrecision: "exact" });
-    if (/(?:doesn't|does not|can't|cannot|unable to|broken|fails?)/iu.test(quote)) candidates.push({ text: quote, type: "pain", quote, origin: "user_evidence", transformation: "保留 Issue/评论中的失败反馈，等待人工压缩为搜索词", evidencePrecision: "exact" });
+    const howDoIText = howDoI?.[1] ? compactFeedbackQuery(howDoI[1]) : undefined;
+    if (howDoIText) candidates.push({ text: howDoIText, type: "task", quote, origin: "user_evidence", transformation: "将 Issue/评论中的任务提问压缩为短任务词", evidencePrecision: "exact" });
+    const alternative = quote.match(/\b(?:replace|alternative to)\s+([A-Za-z][A-Za-z0-9_-]{1,40})(?=\s+(?:and|but|with|to)\b|$)/iu);
+    if (alternative?.[1]) candidates.push({ text: `replace ${alternative[1]}`, type: "alternative", quote, origin: "user_evidence", transformation: "保留 Issue/评论中的替代关系为短搜索词", evidencePrecision: "exact" });
+    const firstPersonFailure = quote.match(/\b(?:I|we)\s+(?:can't|cannot|am unable to|are unable to|can't)\s+(?:to\s+)?([^.!?]+)$/iu);
+    const failureText = firstPersonFailure?.[1] ? compactFeedbackQuery(firstPersonFailure[1]) : undefined;
+    if (failureText) candidates.push({ text: failureText, type: "pain", quote, origin: "user_evidence", transformation: "将第一人称失败反馈压缩为短任务词", evidencePrecision: "exact" });
   }
   return candidates;
 }
@@ -111,6 +121,13 @@ function splitSentences(value: string): string[] { return value.split(/[.!?。�
 function clean(value: string): string { return value.replace(/["“”‘’「」]/gu, "").replace(/\s+/gu, " ").trim().replace(/[.,;:]+$/u, ""); }
 function isGeneric(value: string): boolean { return /^(?:ai|ai tools?|automation|tool|platform|app|custom tool|practical workflow|open-source web app)$/iu.test(value.trim()); }
 function isFeedbackSignal(signal: RawSignal): boolean { return signal.signalKind === "feedback" || signal.tags?.includes("feedback") === true; }
+function compactFeedbackQuery(value: string): string | undefined {
+  const text = clean(value).replace(/^to\s+/iu, "").trim();
+  if (!text || text.length > 64 || text.split(/\s+/u).filter(Boolean).length > 6) return undefined;
+  if (/\b(?:next|those|this|that|it|here|there|something|anything)\b/iu.test(text)) return undefined;
+  if (/[\[\]{}*_`]/u.test(text) || isGeneric(text)) return undefined;
+  return text;
+}
 function sanitizeMarkdown(value: string): string {
   return value.replace(/```[\s\S]*?```/gu, " ").replace(/<!--[\s\S]*?-->/gu, " ").replace(/!?(?:\[([^\]]+)\])\([^)]*\)/gu, "$1").replace(/^\s{0,3}#{1,6}\s+.*$/gmu, "").replace(/^\s*[-*_]{3,}\s*$/gmu, "").replace(/`{1,3}/gu, "").replace(/^\s{0,3}(?:[-*+] |>+)\s*/gmu, "").replace(/\s*\|\s*/gu, " ").replace(/<[^>]+>/gu, "").replace(/[ \t]+/gu, " ").replace(/\n+/gu, ". ").replace(/\.\s*\./gu, ". ").trim();
 }

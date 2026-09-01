@@ -195,6 +195,26 @@ describe("demand expressions", () => {
     expect(question).toContainEqual(expect.objectContaining({ text: "export generated reports", origin: "user_evidence", evidencePrecision: "exact" }));
   });
 
+  it("does not promote descriptive issue or comment sentences into search queries", () => {
+    const examples = [
+      { sourceType: "producthunt" as const, sourceName: "Product Hunt comments", sourceUrl: "https://producthunt.com/posts/asoon", externalId: "ph-2#comment-1", title: "Comment on ASOon", body: "Apple doesn't publish those." },
+      { sourceType: "producthunt" as const, sourceName: "Product Hunt comments", sourceUrl: "https://producthunt.com/posts/prozollo", externalId: "ph-3#comment-1", title: "Comment on Prozollo", body: "Live contrast checking so you can't ship an unreadable accent." },
+      { sourceType: "github" as const, sourceName: "GitHub Issues", sourceUrl: "https://github.com/acme/flowpilot/issues/16", externalId: "acme/flowpilot#16", title: "The failure is silent", body: "The failure is silent." },
+      { sourceType: "github" as const, sourceName: "GitHub Issues", sourceUrl: "https://github.com/acme/flowpilot/issues/17", externalId: "acme/flowpilot#17", title: "TikTok Direct Post can duplicate posts after ambiguous retries", body: "A retry can create duplicate posts." },
+    ];
+    for (const example of examples) {
+      expect(extractDemandExpressions(signal({ ...example, signalKind: "feedback", parentSignalId: "parent", tags: ["feedback"] }))).toEqual([]);
+    }
+  });
+
+  it("keeps direct feedback queries short and rejects generic build intent", () => {
+    const exportRequest = extractDemandExpressions(signal({ sourceType: "github", sourceName: "GitHub Issues", sourceUrl: "https://github.com/acme/flowpilot/issues/18", externalId: "acme/flowpilot#18", signalKind: "feedback", parentSignalId: "parent", tags: ["feedback"], title: "Feature request", body: "I need a way to export generated reports." }));
+    const buildIntent = extractDemandExpressions(signal({ sourceType: "producthunt", sourceName: "Product Hunt comments", sourceUrl: "https://producthunt.com/posts/flowpilot", externalId: "ph-4#comment-1", signalKind: "feedback", parentSignalId: "parent", tags: ["feedback"], title: "Comment", body: "That's what I want to build next." }));
+    expect(exportRequest).toContainEqual(expect.objectContaining({ text: "export generated reports", origin: "user_evidence", evidencePrecision: "exact" }));
+    expect(exportRequest[0]?.text.split(/\s+/u).length).toBeLessThanOrEqual(6);
+    expect(buildIntent).toEqual([]);
+  });
+
   it("extracts direct demand from Product Hunt comment feedback", () => {
     const result = extractDemandExpressions(signal({
       sourceType: "producthunt", sourceName: "Product Hunt comments", sourceUrl: "https://producthunt.com/posts/flowpilot", externalId: "ph-1#comment-1",

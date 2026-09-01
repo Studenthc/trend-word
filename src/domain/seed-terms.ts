@@ -6,7 +6,7 @@ const phraseMarkers = /(?:工具|小程序|生成器|修图|记账|翻译器|模
 const problemMarkers = /(?<!需)(?:求|需要|怎么|无法|打不开|保存不了|保存失败|尺寸不对|太贵|卡顿|失败|找不到)/u;
 
 export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
-  if (signal.evidenceStatus === "failed") return [];
+  if (signal.evidenceStatus === "failed" || isFeedbackSignal(signal)) return [];
   const candidates: Array<{ text: string; location: SeedTermLocation; quote: string; reason: string }> = [];
   const fields: Array<[SeedTermLocation, string | undefined]> = [
     ["title", signal.title], ["excerpt", signal.excerpt], ["body", signal.body],

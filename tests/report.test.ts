@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseCliArgs } from "../src/cli.js";
 import { runRadar } from "../src/index.js";
 import { summarizeRun } from "../src/report/summary.js";
@@ -218,6 +218,22 @@ describe("daily radar report", () => {
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "scys-mcp"]);
     expect(result.report).toContain("scys-mcp（验证）");
     expect(result.report).toContain("producthunt（发现）");
+  });
+
+  it("does not enable implicit Product Hunt network access under Vitest", async () => {
+    const previousToken = process.env.PRODUCT_HUNT_API_TOKEN;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    process.env.PRODUCT_HUNT_API_TOKEN = "test-token";
+    try {
+      const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-test-network-"));
+      const result = await runRadar({ date: "2026-08-26", sourceNames: ["producthunt"], workspaceRoot });
+      expect(result.summary.sourceHealth?.find((item) => item.sourceType === "producthunt")?.status).toBe("unverified");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (previousToken === undefined) delete process.env.PRODUCT_HUNT_API_TOKEN;
+      else process.env.PRODUCT_HUNT_API_TOKEN = previousToken;
+      fetchMock.mockRestore();
+    }
   });
 
   it("parses supported CLI flags and rejects unknown flags", () => {

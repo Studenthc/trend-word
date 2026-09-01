@@ -82,7 +82,7 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
     addCandidate(clusterCandidate.lane === "formal" ? formal : backup, clusterCandidate);
   }
 
-  for (const signal of signals.filter((item) => item.evidenceStatus !== "failed")) {
+  for (const signal of signals.filter((item) => item.evidenceStatus !== "failed" && !isFeedbackSignal(item))) {
     if (signal.sourceType === "github" && !isRecentGitHubSignal(signal.publishedAt, now)) continue;
     if (seedTerms.some((item) => item.rawSignalId === signal.id) || (options.demandExpressions ?? []).some((item) => item.rawSignalId === signal.id)) continue;
     const title = usable(signal.title) ?? usable(signal.body) ?? "";
@@ -307,4 +307,8 @@ function freshnessScore(publishedAt: string, now: number): number {
 function usable(value: string | undefined): string | undefined {
   const text = value?.trim();
   return text || undefined;
+}
+
+function isFeedbackSignal(signal: RawSignal): boolean {
+  return signal.signalKind === "feedback" || signal.tags?.includes("feedback") === true;
 }

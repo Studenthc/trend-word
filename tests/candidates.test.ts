@@ -94,6 +94,14 @@ describe("candidate queue", () => {
     expect(result.formal.find((item) => item.term === term)).toMatchObject({ evidenceOrigin: "capability_derived", missingFields: expect.arrayContaining(["用户原话/替代诉求待确认"]) });
   });
 
+  it("does not create a title fallback candidate for feedback without a demand expression", () => {
+    const result = buildCandidateQueue([signal("feedback-comment", {
+      sourceType: "producthunt", sourceName: "Product Hunt comments", sourceUrl: "https://producthunt.com/posts/asoon", externalId: "ph-1#comment-1",
+      title: "Comment on ASOon", body: "Apple doesn't publish those.", signalKind: "feedback", parentSignalId: "producthunt-asoon", tags: ["feedback", "producthunt-comment"],
+    })], { now: "2026-09-01T00:00:00.000Z" });
+    expect([...result.formal, ...result.backup]).toEqual([]);
+  });
+
   it("ranks direct feedback ahead of capability-derived demand at the same freshness", () => {
     const direct: DemandExpression = {
       id: "demand-feedback", text: "replace Zapier", normalizedText: "replace zapier", type: "alternative", rawSignalId: "feedback-source", sourceEntityId: "entity-github-feedback", sourceType: "github", sourceUrl: "https://github.com/acme/flowpilot/issues/12", evidenceQuote: "I need an alternative to Zapier.", evidenceLocation: "body", evidenceGrade: "direct", qualityState: "verified", qualityScore: 80, origin: "user_evidence", sourceText: "I need an alternative to Zapier.", transformation: "保留 Issue 中的替代需求", evidencePrecision: "exact", firstSeenAt: "2026-09-01T00:00:00.000Z",

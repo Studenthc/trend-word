@@ -141,8 +141,8 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   }
 
   const detailTransports = {
-    ...(injectedTransports.github || process.env.RADAR_GITHUB_TOKEN || (publicHttpEnabled() && process.env.NODE_ENV !== "test") ? { github: injectedTransports.github ?? createHttpTransport({ bearerEnv: "RADAR_GITHUB_TOKEN" }) } : {}),
-    ...(injectedTransports.producthunt || process.env.PRODUCT_HUNT_API_TOKEN ? { producthunt: injectedTransports.producthunt ?? createHttpTransport({ bearerEnv: "PRODUCT_HUNT_API_TOKEN" }) } : {}),
+    ...(injectedTransports.github || (implicitNetworkEnabled() && (process.env.RADAR_GITHUB_TOKEN || publicHttpEnabled())) ? { github: injectedTransports.github ?? createHttpTransport({ bearerEnv: "RADAR_GITHUB_TOKEN" }) } : {}),
+    ...(injectedTransports.producthunt || (implicitNetworkEnabled() && process.env.PRODUCT_HUNT_API_TOKEN) ? { producthunt: injectedTransports.producthunt ?? createHttpTransport({ bearerEnv: "PRODUCT_HUNT_API_TOKEN" }) } : {}),
   };
   const detailEnrichment = await enrichSignalsWithDetails(rawSignals, detailTransports, workspaceRoot, attemptedAt);
   const feedbackEnrichment = await enrichSignalsWithFeedback(detailEnrichment.signals, detailTransports, workspaceRoot, attemptedAt, 20);
@@ -217,18 +217,22 @@ function buildSourceRoles(sources: { required: SourceType[]; bestEffort: SourceT
 
 function stableAdapter(sourceType: StableSourceType, supplied: SourceAdapter | undefined, transports: InjectedSourceTransports, config: Awaited<ReturnType<typeof loadConfig>>): SourceAdapter | undefined {
   if (supplied) return supplied;
-  if (sourceType === "producthunt" && (transports.producthunt || process.env.PRODUCT_HUNT_API_TOKEN)) return createProductHuntAdapter(transports.producthunt ?? createProductHuntGraphqlTransport(), { limit: config.producthunt.limit });
+  if (sourceType === "producthunt" && (transports.producthunt || (implicitNetworkEnabled() && process.env.PRODUCT_HUNT_API_TOKEN))) return createProductHuntAdapter(transports.producthunt ?? createProductHuntGraphqlTransport(), { limit: config.producthunt.limit });
   if (sourceType === "github" && (transports.github || publicHttpEnabled())) return createGitHubAdapter(transports.github ?? createHttpTransport({ bearerEnv: "RADAR_GITHUB_TOKEN" }), { queries: config.github.queries, limit: config.github.limit });
   if (sourceType === "scys-mcp" && transports["scys-mcp"]) return createScysMcpAdapter(transports["scys-mcp"], { queries: config.scys.queries });
   const xTransport = transports["x-timeline"] ?? transports.xTimeline;
-  if (sourceType === "x-timeline" && (xTransport || process.env.X_BEARER_TOKEN)) return createXTimelineAdapter(xTransport ?? createXApiTransport(), { handles: config.xTimeline.handles });
+  if (sourceType === "x-timeline" && (xTransport || (implicitNetworkEnabled() && process.env.X_BEARER_TOKEN))) return createXTimelineAdapter(xTransport ?? createXApiTransport(), { handles: config.xTimeline.handles });
   const redditTransport = transports["reddit-feed"] ?? transports.redditFeed;
   if (sourceType === "reddit-feed" && (redditTransport || publicHttpEnabled())) return createRedditFeedAdapter(redditTransport ?? createRedditFallbackTransport({ tokenEnv: "REDDIT_ACCESS_TOKEN" }), { communities: config.redditFeed.communities, ...(redditTransport ? {} : { baseUrl: "https://www.reddit.com" }) });
   return undefined;
 }
 
 function publicHttpEnabled(): boolean {
-  return process.env.RADAR_ENABLE_PUBLIC_HTTP === "1" && process.env.NODE_ENV !== "test" && !process.env.VITEST;
+  return process.env.RADAR_ENABLE_PUBLIC_HTTP === "1" && implicitNetworkEnabled();
+}
+
+function implicitNetworkEnabled(): boolean {
+  return process.env.NODE_ENV !== "test" && !process.env.VITEST && !process.argv.some((argument) => argument.toLowerCase().includes("vitest"));
 }
 
 function healthForSignals(signals: RawSignal[], attemptedAt: string): SourceHealth[] {

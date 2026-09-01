@@ -101,4 +101,12 @@ describe("extractSeedTerms", () => {
     }));
     expect(terms).toEqual([]);
   });
+
+  it("does not turn quoted language in feedback into a seed term", () => {
+    const terms = extractSeedTerms(signal({
+      sourceType: "producthunt", sourceName: "Product Hunt comments", sourceUrl: "https://www.producthunt.com/posts/asoon", externalId: "ph-1#comment-1",
+      title: "Comment on ASOon", body: "I am genuinely curious whether \"own it, don't rent it\" lands for anyone else.", signalKind: "feedback", parentSignalId: "producthunt-asoon", tags: ["feedback", "producthunt-comment"],
+    }));
+    expect(terms).toEqual([]);
+  });
 });
