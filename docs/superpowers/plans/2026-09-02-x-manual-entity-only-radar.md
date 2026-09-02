@@ -112,10 +112,10 @@ expect(requests.some((request) => request.body?.includes("comments"))).toBe(fals
 **Files:**
 - Inspect: all changed source, tests, docs, and the dated report
 
-- [ ] **Step 1: Review the complete diff.** Check default/explicit source boundaries, missing/empty/error states, old projection compatibility, X provenance, and that no secret or browser state is persisted.
+- [x] **Step 1: Review the complete diff.** Check default/explicit source boundaries, missing/empty/error states, old projection compatibility, X provenance, and that no secret or browser state is persisted.
 
-- [ ] **Step 2: Stage only scoped paths.** Stage the source, test, documentation, and plan files for this feature; leave pre-existing plans, `memory/`, generated data, and unrelated root-worktree edits untouched.
+- [x] **Step 2: Stage only scoped paths.** Stage the source, test, documentation, and plan files for this feature; leave pre-existing plans, `memory/`, generated data, and unrelated root-worktree edits untouched.
 
-- [ ] **Step 3: Commit with a focused message.** Use `git commit -m "feat: use manual X and entity-only radar"` after cached diff checks pass.
+- [x] **Step 3: Commit with a focused message.** Use `git commit -m "feat: use manual X and entity-only radar"` after cached diff checks pass.
 
-- [ ] **Step 4: Fast-forward the local `main`, rerun proportional validation, and push to the previously verified GitHub repository without force-push.** If the remote is absent or diverged, report the exact state instead of changing remote configuration or overwriting history.
+- [x] **Step 4: Fast-forward the local `main`, rerun proportional validation, and push to the previously verified GitHub repository without force-push.** If the remote is absent or diverged, report the exact state instead of changing remote configuration or overwriting history.
