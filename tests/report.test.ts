@@ -44,7 +44,7 @@ describe("daily radar report", () => {
     };
     const report = renderMarkdownReport({ summary: { date: "2026-08-24", sourceHealth: [], sourcesAttempted: ["scys-mcp"] }, sourceHealth: [{ sourceType: "scys-mcp", status: "available", attemptedAt: "2026-08-24T00:00:00.000Z", itemCount: 0, failureReasons: [], coverageNotes: [] }], signals: [], expressions: [], evidence: [], opportunities: [], candidates, sourceRoles: { "scys-mcp": "validation" } });
     expect(report).toContain("## 今天先查这 10 个词");
-    expect(report).toContain("发现源找刚出现的表达");
+    expect(report).toContain("Product Hunt/GitHub 读取产品原文 + X 私有 List 人工筛选");
     expect(report).toContain("scys-mcp（验证）");
     expect(report).toContain("### 1. AI短剧带货");
     expect(report).toContain("用户原话：正文提到“AI短剧带货”");
@@ -65,19 +65,14 @@ describe("daily radar report", () => {
     expect(report).not.toContain("用户原话：每个电子邮件收件箱");
   });
 
-  it("labels feedback, capability, and entity evidence as separate tracks", () => {
+  it("labels capability and entity evidence as separate tracks", () => {
     const candidates: CandidateQueue = {
-      formal: [
-        { candidateId: "candidate-feedback", term: "replace Zapier", sourceType: "github", context: "I need an alternative to Zapier.", reason: "用户反馈", lane: "formal", sourceSignalId: "issue-1", sourceUrl: "https://github.com/acme/flowpilot/issues/12", trendsUrl: "https://trends.google.com/trends/explore?q=replace", score: 220, missingFields: [], evidenceQuote: "I need an alternative to Zapier.", evidenceOrigin: "user_evidence", evidencePrecision: "exact" },
-        { candidateId: "candidate-capability", term: "internal tool builder", sourceType: "github", context: "A platform for building internal tools.", reason: "产品能力", lane: "formal", sourceSignalId: "repo-1", sourceUrl: "https://github.com/acme/flowpilot", trendsUrl: "https://trends.google.com/trends/explore?q=internal", score: 180, missingFields: ["用户原话/替代诉求待确认"], evidenceQuote: "A platform for building internal tools.", evidenceOrigin: "capability_derived", evidencePrecision: "semantic" },
-      ],
+      formal: [{ candidateId: "candidate-capability", term: "internal tool builder", sourceType: "github", context: "A platform for building internal tools.", reason: "产品能力", lane: "formal", sourceSignalId: "repo-1", sourceUrl: "https://github.com/acme/flowpilot", trendsUrl: "https://trends.google.com/trends/explore?q=internal", score: 180, missingFields: ["用户原话/替代诉求待确认"], evidenceQuote: "A platform for building internal tools.", evidenceOrigin: "capability_derived", evidencePrecision: "semantic" }],
       backup: [{ candidateId: "candidate-entity", term: "FlowPilot", sourceType: "producthunt", context: "FlowPilot", reason: "产品实体", lane: "backup", sourceSignalId: "launch-1", sourceUrl: "https://producthunt.com/posts/flowpilot", trendsUrl: "https://trends.google.com/trends/explore?q=FlowPilot", score: 100, missingFields: ["用户问题"] }],
     };
-    const report = renderMarkdownReport({ summary: { date: "2026-09-01", sourceHealth: [], sourcesAttempted: ["github"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates, discoverySummary: { date: "2026-09-01", totalRawSignals: 3, verificationPoolCount: 2, demandExpressionCount: 2, directDemandCount: 1, capabilityDerivedCount: 1, feedbackAttempted: 2, feedbackSucceeded: 1, feedbackUnavailable: 1, sourceQuality: [] } });
-    expect(report).toContain("类型：用户原话需求");
+    const report = renderMarkdownReport({ summary: { date: "2026-09-01", sourceHealth: [], sourcesAttempted: ["github"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates, discoverySummary: { date: "2026-09-01", totalRawSignals: 2, verificationPoolCount: 1, demandExpressionCount: 1, directDemandCount: 0, capabilityDerivedCount: 1, sourceQuality: [] } });
     expect(report).toContain("类型：产品能力推导");
     expect(report).toContain("产品实体观察");
-    expect(report).toContain("反馈补全：已获取 1 个反馈来源，不可用 1 个");
     expect(report).not.toContain("用户原话：A platform for building internal tools");
   });
 
@@ -200,7 +195,7 @@ describe("daily radar report", () => {
     expect(result.summary.sourcesAttempted).toEqual(["fixtures"]);
     expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(expect.arrayContaining(["scys-mcp", "producthunt", "github", "x-timeline", "reddit-feed"]));
     expect(result.report).toContain("## 来源状态");
-    expect(result.report).toContain("scys-mcp（验证）: available");
+    expect(result.report).toContain("scys-mcp（发现）: available");
     expect(result.paths.report).toContain("data/runs/2026-08-24");
     for (const file of ["raw-signals.jsonl", "expressions.json", "evidence.json", "opportunities.json", "run-summary.json", "report.md"]) {
       await expect(readFile(path.join(workspaceRoot, "data", "runs", "2026-08-24", file), "utf8")).resolves.toBeTruthy();
@@ -214,10 +209,31 @@ describe("daily radar report", () => {
   it("attempts every configured discovery and validation source by default", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-default-sources-"));
     const result = await runRadar({ date: "2026-08-26", workspaceRoot });
-    expect(result.summary.sourcesAttempted).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "scys-mcp"]);
-    expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "scys-mcp"]);
-    expect(result.report).toContain("scys-mcp（验证）");
+    expect(result.summary.sourcesAttempted).toEqual(["producthunt", "github", "manual"]);
+    expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(expect.arrayContaining(["producthunt", "github", "manual"]));
+    expect(result.report).toContain("X（人工）（发现）");
     expect(result.report).toContain("producthunt（发现）");
+  });
+
+  it("automatically imports the dated X manual file in the default run", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-auto-x-input-"));
+    const runDirectory = path.join(workspaceRoot, "data", "runs", "2026-09-02");
+    await mkdir(runDirectory, { recursive: true });
+    await writeFile(path.join(runDirectory, "x-web-input.jsonl"), `${JSON.stringify({ id: "x-web-1", sourceType: "manual", sourceName: "X web list", sourceUrl: "https://x.com/karpathy/status/1", title: "AI inbox agent", body: "A new AI inbox agent for founders.", author: "@karpathy", publishedAt: "2026-09-02T03:00:00Z", evidenceStatus: "verified", sourceFingerprint: "x-web:1" })}\n`, "utf8");
+    const result = await runRadar({ date: "2026-09-02", workspaceRoot });
+    expect(result.summary.sourcesAttempted).toContain("manual");
+    expect(result.summary.sourceHealth?.find((item) => item.sourceType === "manual")).toMatchObject({ status: "available", itemCount: 1 });
+    expect(result.report).toContain("X（人工）（发现）: available");
+    expect(result.report).toContain("AI inbox agent");
+  });
+
+  it("keeps a missing automatic X file as an explicit non-fatal gap", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-missing-x-input-"));
+    const result = await runRadar({ date: "2026-09-02", workspaceRoot });
+    expect(result.summary.runStatus).toBe("complete");
+    expect(result.summary.sourceHealth?.find((item) => item.sourceType === "manual")).toMatchObject({ status: "unverified", itemCount: 0, failureReasons: ["当天人工输入缺失"] });
+    expect(result.report).toContain("X（人工）（发现）: unverified");
+    expect(result.report).toContain("当天人工输入缺失");
   });
 
   it("does not enable implicit Product Hunt network access under Vitest", async () => {

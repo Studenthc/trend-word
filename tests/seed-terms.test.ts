@@ -86,12 +86,12 @@ describe("extractSeedTerms", () => {
     expect(terms.map((item) => item.text)).not.toContain("今天我们发布了 abliterated-model");
   });
 
-  it("extracts a concrete English capability phrase from a manual social title", () => {
+  it("does not promote a manually curated X title without body evidence", () => {
     const terms = extractSeedTerms(signal({
       sourceType: "manual", sourceName: "X web list", sourceUrl: "https://x.com/dannypostma/status/1",
       title: "digital twin seat availability", body: "一个真实体育场的数字孪生体显示每个座位的实际价格和可用性。",
     }));
-    expect(terms.map((item) => item.text)).toContain("digital twin seat availability");
+    expect(terms.map((item) => item.text)).not.toContain("digital twin seat availability");
   });
 
   it("does not turn a GitHub feedback title into a repository entity", () => {

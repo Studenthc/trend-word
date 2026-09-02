@@ -16,7 +16,7 @@ export type MarkdownReportInput = {
 const DAILY_REPORT_FORMAL_LIMIT = 10;
 
 export function renderMarkdownReport(input: MarkdownReportInput): string {
-  const lines = [`# 新词机会雷达 - ${input.summary.date}`, "", "> 工作流：发现源找刚出现的表达 → 手工查 Google Trends 过去 7 天 → SCYS 只验证中文需求与变现场景", ""];
+  const lines = [`# 新词机会雷达 - ${input.summary.date}`, "", "> 工作流：Product Hunt/GitHub 读取产品原文 + X 私有 List 人工筛选 → 手工查 Google Trends 过去 7 天", ""];
   if (input.candidates) lines.push(...candidateSection(input.candidates));
   else lines.push("## 今天先查这 10 个词", "", "- 无（没有生成候选队列）");
 
@@ -25,7 +25,6 @@ export function renderMarkdownReport(input: MarkdownReportInput): string {
 
   if (input.discoverySummary?.demandExpressionCount !== undefined) {
     lines.push("", "## 需求抽取漏斗", "", `- 实体 ${input.discoverySummary.entityCount ?? 0} → 详情补全成功 ${input.discoverySummary.detailSucceeded ?? 0} → 需求表达 ${input.discoverySummary.demandExpressionCount}（原文/社媒 ${input.discoverySummary.directDemandCount ?? 0} / 能力推导 ${input.discoverySummary.capabilityDerivedCount ?? 0}）→ 正式验证池 ${input.discoverySummary.formalDemandCount ?? 0}`);
-    if (input.discoverySummary.feedbackAttempted !== undefined && input.discoverySummary.feedbackAttempted > 0) lines.push(`- 反馈补全：已获取 ${input.discoverySummary.feedbackSucceeded ?? 0} 个反馈来源，不可用 ${input.discoverySummary.feedbackUnavailable ?? 0} 个`);
   }
 
   lines.push("", "## 今日提醒", "", ...reminderLines(input));
@@ -39,11 +38,10 @@ function sourceStatusLines(source: SourceHealth, discovery?: DiscoverySummary, s
   const formalCount = quality?.formalCandidateCount ?? 0;
   const backupCount = quality?.backupCandidateCount ?? 0;
   const freshCount = quality?.freshCount ?? 0;
-  const feedbackCount = quality?.feedbackCount;
   const role = sourceRoles?.[source.sourceType] ?? "discovery";
   const roleLabel = role === "validation" ? "验证" : "发现";
-  const feedbackLabel = feedbackCount !== undefined ? ` | 反馈 ${feedbackCount}` : "";
-  const lines = [`- ${source.sourceType}（${roleLabel}）: ${source.status} | 原始 ${rawCount} | 近7天 ${freshCount} | 验证池 ${formalCount} | 备选 ${backupCount}${feedbackLabel}`];
+  const sourceLabel = source.sourceType === "manual" ? "X（人工）" : source.sourceType;
+  const lines = [`- ${sourceLabel}（${roleLabel}）: ${source.status} | 原始 ${rawCount} | 近7天 ${freshCount} | 验证池 ${formalCount} | 备选 ${backupCount}`];
   for (const note of [...source.failureReasons, ...source.coverageNotes].slice(0, 2)) lines.push(`  - ${excerpt(note, 50)}`);
   return lines;
 }

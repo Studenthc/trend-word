@@ -19,7 +19,6 @@ import { createRedditFeedAdapter, type HttpTransport as RedditHttpTransport } fr
 import { createHttpTransport, createProductHuntGraphqlTransport, createRedditFallbackTransport, createXApiTransport } from "./sources/http.js";
 import { runSafeSource } from "./sources/source.js";
 import { enrichSignalsWithDetails, type DetailResult } from "./sources/details.js";
-import { enrichSignalsWithFeedback, isFeedbackSignal, type FeedbackEnrichmentResult } from "./sources/feedback.js";
 import { loadConfig } from "./config.js";
 import { RunStore } from "./storage/run-store.js";
 import { readCandidateFeedback } from "./storage/feedback-store.js";
@@ -87,7 +86,9 @@ export async function runRadar(options: RadarRunOptions): Promise<RadarRunResult
 async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResult> {
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const config = await loadConfig({ workspaceRoot });
-  const sourceNames = options.sourceNames ?? defaultSourceNames(config);
+  const automaticManual = options.sourceNames === undefined && options.inputPath === undefined;
+  const sourceNames = options.sourceNames ?? [...new Set([...defaultSourceNames(config), "manual"])] as string[];
+  const automaticManualInputPath = path.join(workspaceRoot, "data", "runs", options.date, "x-web-input.jsonl");
   const attemptedAt = new Date(`${options.date}T00:00:00.000Z`).toISOString();
   const store = new RunStore(workspaceRoot, options.date);
   const sourceContext = { workspaceRoot, fetchedAt: attemptedAt, config };
@@ -104,20 +105,26 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
     sourceHealth.push(...healthForSignals(fixtureSignals, attemptedAt));
   }
   if (sourceNames.includes("manual")) {
-    if (!options.inputPath) {
+    const manualInputPath = options.inputPath ?? (automaticManual ? automaticManualInputPath : undefined);
+    if (!manualInputPath) {
       configurationError = new Error("manual source requires --input");
       sourceHealth.push({ sourceType: "manual", status: "blocked", attemptedAt, itemCount: 0, failureReasons: [configurationError.message], coverageNotes: ["manual input unavailable"] });
     } else {
       try {
-        const content = await readFile(options.inputPath, "utf8");
+        const content = await readFile(manualInputPath, "utf8");
         const imported = importManualSignals(content, { fetchedAt: attemptedAt });
         rawSignals.push(...imported.signals);
         const manualSignals = imported.signals.filter((item) => item.sourceType === "manual");
         const failedCount = manualSignals.filter((item) => item.evidenceStatus === "failed").length;
         sourceHealth.push({ sourceType: "manual", status: failedCount === manualSignals.length && manualSignals.length > 0 ? "unverified" : failedCount > 0 || imported.errors.length > 0 ? "partial" : manualSignals.length > 0 ? "available" : "empty", attemptedAt, itemCount: manualSignals.length - failedCount, failureReasons: [...imported.errors.map((item) => `row ${item.row}: ${item.message}`), ...manualSignals.filter((item) => item.evidenceStatus === "failed").map((item) => item.failureReason ?? "failed signal")], coverageNotes: failedCount > 0 ? ["failed manual signal is not evidence of no new words"] : imported.errors.length > 0 ? ["manual input partially imported"] : [] });
       } catch (error) {
-        configurationError = error instanceof Error ? error : new Error(String(error));
-        sourceHealth.push({ sourceType: "manual", status: "blocked", attemptedAt, itemCount: 0, failureReasons: [configurationError.message], coverageNotes: ["manual input unavailable"] });
+        const reason = error instanceof Error ? error : new Error(String(error));
+        if (automaticManual && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          sourceHealth.push({ sourceType: "manual", status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["当天人工输入缺失"], coverageNotes: ["X manual input unavailable; no previous date reused"] });
+        } else {
+          configurationError = reason;
+          sourceHealth.push({ sourceType: "manual", status: "blocked", attemptedAt, itemCount: 0, failureReasons: [configurationError.message], coverageNotes: ["manual input unavailable"] });
+        }
       }
     }
   }
@@ -145,8 +152,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
     ...(injectedTransports.producthunt || (implicitNetworkEnabled() && process.env.PRODUCT_HUNT_API_TOKEN) ? { producthunt: injectedTransports.producthunt ?? createHttpTransport({ bearerEnv: "PRODUCT_HUNT_API_TOKEN" }) } : {}),
   };
   const detailEnrichment = await enrichSignalsWithDetails(rawSignals, detailTransports, workspaceRoot, attemptedAt);
-  const feedbackEnrichment = await enrichSignalsWithFeedback(detailEnrichment.signals, detailTransports, workspaceRoot, attemptedAt, 20);
-  rawSignals = feedbackEnrichment.signals;
+  rawSignals = detailEnrichment.signals;
   const deduped = dedupeRawSignals(rawSignals);
   const seedTerms = deduped.flatMap((signal) => extractSeedTerms(signal));
   const demandExpressions = deduped.flatMap((signal) => extractDemandExpressions(signal));
@@ -154,7 +160,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   const sourceRoles = buildSourceRoles(config.sources);
   const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot), seedTerms, clusters, demandExpressions, previousExpressions, sourceRoles });
   const reportCandidates = attachTrendVerifications(candidates, await store.readProjection<TrendVerification[]>("trend-verifications") ?? []);
-  const discoverySummary = buildDiscoverySummary(options.date, deduped, sourceHealth, reportCandidates, demandExpressions, detailEnrichment.results, feedbackEnrichment.results);
+  const discoverySummary = buildDiscoverySummary(options.date, deduped, sourceHealth, reportCandidates, demandExpressions, detailEnrichment.results);
   await store.writeDiscoverySummary(discoverySummary);
   const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));
   const coverageAvailable = sourceHealth.length > 0 && sourceHealth.every((item) => item.status === "available");
@@ -244,7 +250,7 @@ function healthForSignals(signals: RawSignal[], attemptedAt: string): SourceHeal
   });
 }
 
-function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth: SourceHealth[], candidates: ReturnType<typeof buildCandidateQueue>, demandExpressions: import("./types.js").DemandExpression[] = [], detailResults: DetailResult[] = [], feedbackResults: FeedbackEnrichmentResult[] = []): DiscoverySummary {
+function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth: SourceHealth[], candidates: ReturnType<typeof buildCandidateQueue>, demandExpressions: import("./types.js").DemandExpression[] = [], detailResults: DetailResult[] = []): DiscoverySummary {
   const runAt = Date.parse(`${date}T00:00:00.000Z`);
   const formalBySignal = countCandidatesBySignal(candidates.formal);
   const backupBySignal = countCandidatesBySignal(candidates.backup);
@@ -252,7 +258,7 @@ function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth:
     date,
     totalRawSignals: signals.length,
     verificationPoolCount: candidates.formal.length,
-    entityCount: signals.filter((signal) => !isFeedbackSignal(signal)).length,
+    entityCount: signals.length,
     detailAttempted: detailResults.length,
     detailSucceeded: detailResults.filter((detail) => detail.status === "success").length,
     detailEmpty: detailResults.filter((detail) => detail.status === "empty").length,
@@ -263,12 +269,8 @@ function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth:
     inferredDemandCount: demandExpressions.filter((item) => (item.evidencePrecision ?? (item.transformation === "保留原文需求表达" ? "exact" : item.origin === "capability_derived" ? "semantic" : "inferred")) === "inferred").length,
     qualityRejectedCount: 0,
     formalDemandCount: candidates.formal.filter((candidate) => candidate.candidateId.startsWith("candidate-demand-")).length,
-    feedbackAttempted: feedbackResults.length,
-    feedbackSucceeded: feedbackResults.filter((item) => item.result.status === "success").length,
-    feedbackUnavailable: feedbackResults.filter((item) => item.result.status === "unavailable").length,
     sourceQuality: sourceHealth.map((health) => {
       const sourceSignals = signals.filter((signal) => signal.sourceType === health.sourceType);
-      const feedbackCount = sourceSignals.filter(isFeedbackSignal).length;
       return {
         sourceType: health.sourceType,
         status: health.status,
@@ -277,7 +279,6 @@ function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth:
         freshCount: sourceSignals.filter((signal) => isFreshSignal(signal.publishedAt, runAt)).length,
         formalCandidateCount: sourceSignals.reduce((count, signal) => count + (formalBySignal.get(signal.id) ?? 0), 0),
         backupCandidateCount: sourceSignals.reduce((count, signal) => count + (backupBySignal.get(signal.id) ?? 0), 0),
-        feedbackCount,
         failureReasons: [...health.failureReasons],
       };
     }),

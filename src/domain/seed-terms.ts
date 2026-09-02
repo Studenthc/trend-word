@@ -34,7 +34,7 @@ export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
       }
     }
   }
-  if (["manual", "x-timeline", "reddit-feed"].includes(signal.sourceType) && signal.title && hasDistinctBodyContext(signal, signal.title) && isConcreteEnglishTitle(signal.title)) {
+  if (["x-timeline", "reddit-feed"].includes(signal.sourceType) && signal.title && hasDistinctBodyContext(signal, signal.title) && isConcreteEnglishTitle(signal.title)) {
     candidates.push({ text: signal.title, location: "title", quote: signal.title, reason: "社媒标题中的具体新表达" });
   }
   if (signal.sourceType === "github" && signal.title && !isFeedbackSignal(signal)) {

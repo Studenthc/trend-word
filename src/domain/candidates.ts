@@ -90,7 +90,7 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
     const context = meaningfulContext(signal, title);
     const terms = context && signal.sourceType !== "github" ? extractTerms(context) : [];
     if (context && terms.length === 0 && signal.sourceType !== "github" && !/(?:风口|新玩法|推荐|来了)$/u.test(title)) {
-      const titleTerm = deriveSpecificTitleTerm(title, signal.sourceType);
+      const titleTerm = signal.sourceType === "manual" ? undefined : deriveSpecificTitleTerm(title, signal.sourceType);
       if (titleTerm) terms.push(titleTerm);
     }
     if (context && terms.length > 0) {
@@ -158,10 +158,14 @@ function candidateFor(signal: RawSignal, term: string, context: string, lane: Ra
   const decision = feedback.get(candidateId)?.decision;
   const freshness = signal.publishedAt ? freshnessScore(signal.publishedAt, now) : 0;
   const score = (lane === "formal" ? 60 : 10) + Math.min(normalized.length, 30) + freshness + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
-  const missingFields = lane === "formal" ? [] : ["正文上下文"];
+  const hasBodyContext = normalizeExpression(context).normalized !== normalizeExpression(term).normalized;
+  const missingFields = lane === "formal" ? [] : hasBodyContext ? ["可搜索需求表达", "用户问题/替代诉求", "Google Trends 7d"] : ["正文上下文"];
+  const observationReason = hasBodyContext
+    ? signal.sourceType === "manual" ? "X 原文包含产品/功能信息，但未出现明确用户需求或替代诉求，先保留观察" : "已有产品正文能力证据，但未出现可验证的用户需求表达，先保留观察"
+    : "当前只有标题或缺少可抽取的正文表达，等待正文详情后再判断";
   return {
     candidateId, term: term.trim(), sourceType: signal.sourceType, context: context.trim(),
-    reason: lane === "formal" ? "正文出现了具体表达，适合先验证 Google Trends 过去 7 天增速" : sourceRoles[signal.sourceType] === "validation" ? "SCYS 只作中文需求验证，等待早期发现源佐证" : "当前只有标题或缺少可抽取的正文表达，等待正文详情后再判断",
+    reason: lane === "formal" ? "正文出现了具体表达，适合先验证 Google Trends 过去 7 天增速" : sourceRoles[signal.sourceType] === "validation" ? "SCYS 只作中文需求验证，等待早期发现源佐证" : observationReason,
     lane, sourceSignalId: signal.id, sourceUrl: signal.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}),
     ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),

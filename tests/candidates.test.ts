@@ -64,6 +64,16 @@ describe("candidate queue", () => {
     expect(result.formal.map((item) => item.term)).not.toContain("AI 代理守门人让冷邮件失效");
   });
 
+  it("keeps a manually curated X title as an entity observation until body evidence yields a term", () => {
+    const result = buildCandidateQueue([signal("x-entity-only", {
+      sourceType: "manual", sourceName: "X web list", sourceUrl: "https://x.com/levelsio/status/1",
+      title: "AI video channel switcher", body: "Now adding a channel switcher for videos.",
+    })], { now: "2026-09-01T00:00:00.000Z" });
+    expect(result.formal).toEqual([]);
+    expect(result.backup).toContainEqual(expect.objectContaining({ term: "AI video channel switcher", lane: "backup", missingFields: expect.arrayContaining(["可搜索需求表达"]), reason: expect.stringContaining("未出现明确用户需求") }));
+    expect(result.backup[0]?.missingFields).not.toContain("正文上下文");
+  });
+
   it("limits capability-derived formal terms to one per source entity", () => {
     const base = { normalizedText: "", type: "task" as const, rawSignalId: "github-one", sourceEntityId: "entity-github-one", sourceType: "github" as const, sourceUrl: "https://github.com/acme/one", evidenceLocation: "body" as const, evidenceGrade: "direct" as const, qualityState: "review" as const, qualityScore: 55, origin: "capability_derived" as const, sourceText: "Product capability", transformation: "归纳", firstSeenAt: "2026-08-25T00:00:00.000Z" };
     const result = buildCandidateQueue([signal("github-one", { sourceType: "github", sourceUrl: "https://github.com/acme/one", title: "acme/one", body: "Product capability" })], {
@@ -164,10 +174,10 @@ describe("candidate queue", () => {
     expect(result.backup[0]).toMatchObject({ lane: "backup", missingFields: ["正文上下文"] });
   });
 
-  it("preserves hyphenated model names when deriving a title term", () => {
+  it("keeps a hyphenated model title in observation without body evidence", () => {
     const result = buildCandidateQueue([signal("hyphenated-model", { sourceType: "manual", title: "Hacker-Opus", body: "A new model behavior report." })], { now: "2026-09-01T00:00:00.000Z" });
-    expect(result.formal.map((item) => item.term)).toContain("Hacker-Opus");
-    expect(result.formal.map((item) => item.term)).not.toContain("Hacker");
+    expect(result.formal.map((item) => item.term)).not.toContain("Hacker-Opus");
+    expect(result.backup).toContainEqual(expect.objectContaining({ term: "Hacker-Opus", lane: "backup" }));
   });
 
   it("keeps fresh manual discovery signals visible when the backup queue is capped", () => {
