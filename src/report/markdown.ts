@@ -108,12 +108,12 @@ function modelRadarLines(modelRadar: ModelRadarReport, sourceHealth: SourceHealt
   }
   for (const mapping of modelRadar.mappings.slice(0, 5)) {
     const url = mapping.sourceUrls[0];
-    lines.push(`- 产品能力推导：${mapping.keyword} · 待外部需求证据${url ? ` · [模型原文](${url})` : ""}`);
+    lines.push(`- 产品能力推导：${mapping.keyword} · 待 Google Trends 验证${url ? ` · [模型原文](${url})` : ""}`);
   }
   const modelById = new Map(modelRadar.models.map((model) => [model.id, model]));
   for (const combination of modelRadar.combinations.slice(0, 3)) {
     const model = combination.candidateModels.map((id) => modelById.get(id) ?? modelRadar.models.find((item) => item.id.endsWith(`:${id}`))).find((item): item is ModelRecord => Boolean(item));
-    lines.push(`- 组合假设：${combination.combinedQuery} · ${combination.capabilityChain.join(" -> ")} · 待外部需求证据${model ? ` · [模型原文](${model.modelUrl})` : ""}`);
+    lines.push(`- 组合假设：${combination.combinedQuery} · ${combination.capabilityChain.join(" -> ")} · 待 Google Trends 验证${model ? ` · [模型原文](${model.modelUrl})` : ""}`);
   }
   return lines;
 }

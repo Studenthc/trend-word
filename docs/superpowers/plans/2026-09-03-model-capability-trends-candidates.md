@@ -13,8 +13,10 @@
 ## Scope map
 
 - Modify src/domain/candidates.ts: remove the model-only downgrade, use a Trends-only missing check for model-derived candidates, and retain provenance.
+- Modify src/domain/model-capabilities.ts: recognize concrete capabilities in model descriptions and known catalog labels, and map them to task-shaped queries.
 - Modify src/report/markdown.ts: replace model radar wording that asks for external demand evidence with wording that asks for Google Trends verification.
 - Modify tests/candidates.test.ts: require model-derived capability candidates in the formal queue and keep opaque model entities out.
+- Modify tests/domain/model-capabilities.test.ts: cover concrete description-derived capabilities and query mappings.
 - Modify tests/pipeline.test.ts: update model formal/watch counts and queue assertions.
 - Modify tests/report.test.ts: update the model radar label assertions.
 - Modify docs/superpowers/specs/2026-09-03-model-capability-trends-candidates-design.md only if implementation reveals a contradiction; otherwise leave the approved specification unchanged.
@@ -170,7 +172,71 @@ pnpm exec vitest run tests/candidates.test.ts tests/pipeline.test.ts tests/repor
 
 Expected: all focused tests pass; model candidates appear under 今天先查这 10 个词 and the old external-evidence phrase is absent.
 
-### Task 4: Validate real output and land the change
+### Task 4: Recover concrete capabilities from live catalog descriptions
+
+**Files:** src/domain/model-capabilities.ts, tests/domain/model-capabilities.test.ts
+
+- [ ] Step 1: Add a failing test for concrete description signals.
+
+Use model records whose descriptions mirror the public catalog observations and assert that the normalizer emits concrete capabilities and task queries:
+
+~~~typescript
+const result = buildModelCapabilities([
+  model({ modelName: "fal/seedream-edit", description: "Region-precise image editing changes one element while keeping the rest of the frame intact with layer separation and up to 10 reference images.", claimedCapabilities: ["edit"] }),
+  model({ modelName: "fal/gpt-image", description: "Creates extremely detailed images with fine typography.", claimedCapabilities: ["gpt-image-2"] }),
+  model({ modelName: "fal/birefnet", description: "High-resolution image segmentation for dichotomous image segmentation.", claimedCapabilities: ["v2"] }),
+  model({ modelName: "hf/deepfake", claimedCapabilities: ["deepfake-detection"] }),
+]);
+
+expect(result.mappings.map((item) => item.keyword)).toEqual(expect.arrayContaining([
+  "region specific image editing",
+  "multi reference image editing",
+  "layer aware image editing",
+  "image generator with text",
+  "image segmentation",
+  "deepfake detection",
+]));
+expect(result.mappings.some((item) => item.keyword === "edit" || item.keyword === "v2")).toBe(false);
+~~~
+
+- [ ] Step 2: Run the capability test and verify the expected RED failure.
+
+Run:
+
+~~~bash
+pnpm exec vitest run tests/domain/model-capabilities.test.ts -t "recovers concrete"
+~~~
+
+Expected: FAIL because the current rule table recognizes only the existing small capability set and treats edit/v2 as unsupported labels.
+
+- [ ] Step 3: Extend the fixed capability rule table.
+
+Add only concrete, task-shaped labels and mappings for image editing, region-specific editing, multi-reference editing, layer-aware editing, sequential editing, style transfer, text rendering, image segmentation, image classification, and deepfake detection. Detect these from normalized model descriptions, claimed capabilities, tags, and known pipeline labels. Keep opaque model names and generic labels out.
+
+The new query mappings must be deterministic:
+
+~~~typescript
+"region-specific-image-editing": "region specific image editing"
+"multi-reference-image-editing": "multi reference image editing"
+"layer-aware-image-editing": "layer aware image editing"
+"text-rendering": "image generator with text"
+"image-segmentation": "image segmentation"
+"deepfake-detection": "deepfake detection"
+~~~
+
+Description rules must require the matching concrete phrase, such as region-precise or changing one element for region editing, reference images for multi-reference editing, layer separation for layer-aware editing, typography/text rendering for text rendering, and segmentation for image segmentation.
+
+- [ ] Step 4: Run the capability test and confirm GREEN.
+
+Run:
+
+~~~bash
+pnpm exec vitest run tests/domain/model-capabilities.test.ts
+~~~
+
+Expected: all capability tests pass, every mapping retains at least one model URL, and no model name or opaque tag becomes a query.
+
+### Task 5: Validate real output and land the change
 
 **Files:** inspect data/runs/2026-09-03/report.md and model projections; do not add generated artifacts to git.
 

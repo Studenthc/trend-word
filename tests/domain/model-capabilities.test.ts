@@ -44,4 +44,23 @@ describe("model capability normalization", () => {
     expect(expressions).toEqual(expect.arrayContaining([expect.objectContaining({ text: "image to video", rawSignalId: "signal-image", sourceEntityId: result.mappings[0]?.id, origin: "capability_derived", evidenceGrade: "inferred", qualityState: "review", evidencePrecision: "semantic" })]));
     expect(expressions[0]?.sourceText).toContain("image-to-video");
   });
+
+  it("recovers concrete capabilities from catalog descriptions and labels", () => {
+    const result = buildModelCapabilities([
+      model({ id: "fal-ai:seedream-edit", modelName: "fal/seedream-edit", modelUrl: "https://fal.ai/models/fal/seedream-edit", sourceSignalId: "signal-seedream", description: "Region-precise image editing changes one element while keeping the rest of the frame intact with layer separation and up to 10 reference images.", claimedCapabilities: ["edit"] }),
+      model({ id: "fal-ai:gpt-image", modelName: "fal/gpt-image", modelUrl: "https://fal.ai/models/fal/gpt-image", sourceSignalId: "signal-gpt-image", description: "Creates extremely detailed images with fine typography.", claimedCapabilities: ["gpt-image-2"] }),
+      model({ id: "fal-ai:birefnet", modelName: "fal/birefnet", modelUrl: "https://fal.ai/models/fal/birefnet", sourceSignalId: "signal-birefnet", description: "High-resolution image segmentation for dichotomous image segmentation.", claimedCapabilities: ["v2"] }),
+      model({ id: "huggingface:deepfake", modelName: "hf/deepfake", modelUrl: "https://huggingface.co/hf/deepfake", sourceSignalId: "signal-deepfake", claimedCapabilities: ["deepfake-detection"] }),
+    ]);
+
+    expect(result.mappings.map((item) => item.keyword)).toEqual(expect.arrayContaining([
+      "region specific image editing",
+      "multi reference image editing",
+      "layer aware image editing",
+      "image generator with text",
+      "image segmentation",
+      "deepfake detection",
+    ]));
+    expect(result.mappings.some((item) => item.keyword === "edit" || item.keyword === "v2")).toBe(false);
+  });
 });

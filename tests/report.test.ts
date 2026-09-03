@@ -57,8 +57,9 @@ describe("daily radar report", () => {
 
     expect(report).toContain("## 模型能力雷达");
     expect(report).toContain("模型目录：Hugging Face 1 条 · fal.ai 1 条；归一化能力 1 条；需求表达 1 条；组合假设 1 条");
-    expect(report).toContain("产品能力推导：image to video · 待外部需求证据");
-    expect(report).toContain("组合假设：product photo video with voiceover · image-to-video -> text-to-speech");
+    expect(report).toContain("产品能力推导：image to video · 待 Google Trends 验证");
+    expect(report).toContain("组合假设：product photo video with voiceover · image-to-video -> text-to-speech · 待 Google Trends 验证");
+    expect(report).not.toContain("待外部需求证据");
     expect(report).toContain("https://huggingface.co/acme/image");
     expect(report).not.toContain("用户原话：image-to-video");
     expect(report).not.toContain("这是一个很长的模型描述");

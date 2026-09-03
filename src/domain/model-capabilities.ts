@@ -5,6 +5,16 @@ export type ModelCapabilityRadar = { capabilities: ModelCapability[]; mappings: 
 
 const QUERY_BY_CAPABILITY: Record<string, string> = {
   "image-to-video": "image to video",
+  "image-editing": "image editing",
+  "region-specific-image-editing": "region specific image editing",
+  "multi-reference-image-editing": "multi reference image editing",
+  "layer-aware-image-editing": "layer aware image editing",
+  "sequential-image-editing": "sequential image editing",
+  "image-style-transfer": "image style transfer",
+  "text-rendering": "image generator with text",
+  "image-segmentation": "image segmentation",
+  "image-classification": "image classification",
+  "deepfake-detection": "deepfake detection",
   "image-to-video-with-audio": "image to video with audio",
   "reference-to-video": "reference to video",
   "character-consistent-video": "character consistent video generator",
@@ -20,17 +30,27 @@ const QUERY_BY_CAPABILITY: Record<string, string> = {
   "text-to-video": "text to video generator",
   "text-to-speech": "text to speech",
   "speech-to-text": "speech to text",
+  translation: "text translation",
 };
 
 const CAPABILITY_ALIASES: Record<string, string> = {
   "image-to-video": "image-to-video", "image_to_video": "image-to-video", "image to video": "image-to-video",
+  "image-editing": "image-editing", "image editing": "image-editing",
+  "region-specific-image-editing": "region-specific-image-editing", "region-precise-image-editing": "region-specific-image-editing",
+  "multi-reference-image-editing": "multi-reference-image-editing", "multi reference image editing": "multi-reference-image-editing",
+  "layer-aware-image-editing": "layer-aware-image-editing", "layer aware image editing": "layer-aware-image-editing",
+  "sequential-image-editing": "sequential-image-editing", "sequential image editing": "sequential-image-editing",
+  "image-style-transfer": "image-style-transfer", "style-transfer": "image-style-transfer", "style transfer": "image-style-transfer",
+  "text-rendering": "text-rendering", "text rendering": "text-rendering",
+  "image-segmentation": "image-segmentation", "semantic-segmentation": "image-segmentation",
+  "image-classification": "image-classification", "deepfake-detection": "deepfake-detection",
   "image-to-video-with-audio": "image-to-video-with-audio", "image_to_video_with_audio": "image-to-video-with-audio",
   "reference-to-video": "reference-to-video", "character-consistent-video": "character-consistent-video",
   "product-photo-to-video": "product-photo-to-video", "first-last-frame-video": "first-last-frame-video",
   "speech-to-text-translation": "speech-to-text-translation", "lip-sync": "lip-sync", "lip sync": "lip-sync",
   "accurate-text-rendering": "accurate-text-rendering", "example-based-image-editing": "example-based-image-editing",
   "editable-svg": "editable-svg", "text-to-image": "text-to-image", "text-to-video": "text-to-video",
-  "text-to-speech": "text-to-speech", "speech-to-text": "speech-to-text",
+  "text-to-speech": "text-to-speech", "speech-to-text": "speech-to-text", translation: "translation",
 };
 
 export function buildModelCapabilities(models: ModelRecord[]): ModelCapabilityRadar {
@@ -73,6 +93,14 @@ function detectCapabilities(model: ModelRecord): string[] {
     if (alias) found.add(alias);
   }
   if (/image-to-video-with-audio|video.*audio.*image/iu.test(text)) found.add("image-to-video-with-audio");
+  if (/image.*editing|editing.*images?/iu.test(text)) found.add("image-editing");
+  if (/region[- ](?:precise|specific)|change[sd]?\s+one\s+element|keep(?:ing)?\s+the\s+rest/iu.test(text)) found.add("region-specific-image-editing");
+  if (/(?:multi(?:ple)?|up\s+to\s+\d+)\s+reference\s+images?|reference\s+images?/iu.test(text)) found.add("multi-reference-image-editing");
+  if (/layer[- ](?:separation|aware)|separate\s+layers/iu.test(text)) found.add("layer-aware-image-editing");
+  if (/sequential(?:\s+image)?\s+editing/iu.test(text)) found.add("sequential-image-editing");
+  if (/style\s+transfer/iu.test(text)) found.add("image-style-transfer");
+  if (/fine\s+typography|text[- ]rendering|accurate\s+text|typography/iu.test(text)) found.add("text-rendering");
+  if (/image\s+segmentation|semantic\s+segmentation|dichotomous\s+image/iu.test(text)) found.add("image-segmentation");
   if (/reference-to-video|reference.*video/iu.test(text)) found.add("reference-to-video");
   if (/character-consisten|consistent-character/iu.test(text)) found.add("character-consistent-video");
   if (/product-photo.*video|product.*photo.*video/iu.test(text)) found.add("product-photo-to-video");
@@ -86,6 +114,8 @@ function detectCapabilities(model: ModelRecord): string[] {
   if (model.inputTypes.includes("text") && model.outputTypes.includes("video")) found.add("text-to-video");
   if (model.inputTypes.includes("text") && model.outputTypes.includes("audio")) found.add("text-to-speech");
   if (model.inputTypes.includes("audio") && model.outputTypes.includes("text")) found.add("speech-to-text");
+  if (/generat(?:e|es|ing)\s+[^.]{0,80}(?:images?|photos?)\s+from\s+text/iu.test(text)) found.add("text-to-image");
+  if (/deepfake[- ]detection/iu.test(text)) found.add("deepfake-detection");
   return [...found].filter((capability) => capability in QUERY_BY_CAPABILITY).sort();
 }
 

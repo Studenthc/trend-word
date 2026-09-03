@@ -35,9 +35,12 @@ describe("candidate queue", () => {
       { ...base, id: "direct-demand", rawSignalId: "direct-signal", sourceType: "manual", sourceUrl: directSignal.sourceUrl, evidenceGrade: "direct", qualityState: "verified", qualityScore: 90, origin: "user_evidence", sourceText: "Users need image to video", transformation: "保留原文需求表达", evidencePrecision: "exact", evidenceQuote: "Users need image to video" },
     ] });
 
-    expect(result.formal.map((item) => item.term)).toEqual(["image to video"]);
-    expect(result.formal[0]?.evidenceOrigin).toBe("user_evidence");
-    expect(result.backup).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived", qualificationReason: expect.stringContaining("外部需求证据") })]));
+    expect(result.formal.map((item) => item.term)).toEqual(["image to video", "image to video"]);
+    expect(result.formal).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived", lane: "formal", missingFields: ["Google Trends 7d"] }),
+      expect.objectContaining({ sourceType: "manual", evidenceOrigin: "user_evidence" }),
+    ]));
+    expect(result.backup).not.toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog" })]));
 
     const entityOnly = buildCandidateQueue([signal("model-entity-only", { sourceType: "model-catalog", sourceName: "Hugging Face", sourceUrl: "https://huggingface.co/acme/opaque-v2", title: "acme/opaque-v2", body: "safetensors, license:mit, region:us", signalKind: "entity" })], { now: "2026-09-03T00:00:00.000Z" });
     expect(entityOnly.formal).toEqual([]);
