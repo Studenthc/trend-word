@@ -1,5 +1,6 @@
 import type { DiscoverySummary, Evidence, Expression, KeywordModelMapping, ModelCapability, ModelCombination, ModelRecord, Opportunity, RawSignal, RunSummary, SourceHealth, SourceRole, SourceType } from "../types.js";
 import type { CandidateQueue } from "../domain/candidates.js";
+import { isBaselineModelQuery, modelCapabilitySummary, modelQueryPriority } from "../domain/model-capabilities.js";
 
 export type MarkdownReportInput = {
   summary: RunSummary;
@@ -102,13 +103,16 @@ function modelRadarLines(modelRadar: ModelRadarReport, sourceHealth: SourceHealt
   const huggingFaceCount = unknownWhenUnavailable && (counts.get("huggingface") ?? 0) === 0 ? "未核验" : `${counts.get("huggingface") ?? 0} 条`;
   const falUnavailable = unknownWhenUnavailable && (counts.get("fal-ai") ?? 0) === 0;
   const falCount = falUnavailable ? "未核验" : `${counts.get("fal-ai") ?? 0} 条`;
-  const lines = ["## 模型能力雷达", "", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；需求表达 ${modelRadar.mappings.length} 条；组合假设 ${modelRadar.combinations.length} 条`];
+  const actionableMappings = modelRadar.mappings.filter((mapping) => !isBaselineModelQuery(mapping.normalizedKeyword)).sort((left, right) => modelQueryPriority(right.keyword) - modelQueryPriority(left.keyword) || left.keyword.localeCompare(right.keyword, "en-US"));
+  const baselineMappingCount = modelRadar.mappings.length - actionableMappings.length;
+  const lines = ["## 模型能力雷达", "", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；待查能力 ${actionableMappings.length} 条${baselineMappingCount > 0 ? `；常规能力略过 ${baselineMappingCount} 条` : ""}；组合假设 ${modelRadar.combinations.length} 条`];
   for (const note of coverageNotes) {
     if (/(?:huggingface|fal-ai):\s+(?:available|partial|blocked|empty|unverified)/iu.test(note)) lines.push(`- 覆盖：${note.replace(/^fal-ai:/u, "fal.ai:")}`);
   }
-  for (const mapping of modelRadar.mappings.slice(0, 5)) {
+  for (const mapping of actionableMappings.slice(0, 5)) {
     const url = mapping.sourceUrls[0];
-    lines.push(`- 产品能力推导：${mapping.keyword} · 待 Google Trends 验证${url ? ` · [模型原文](${url})` : ""}`);
+    const capability = mapping.capabilityId.replace(/^capability-/u, "");
+    lines.push(`- 产品能力推导：${mapping.keyword} · ${modelCapabilitySummary(capability)} · 待 Google Trends 验证${url ? ` · [模型原文](${url})` : ""}`);
   }
   const modelById = new Map(modelRadar.models.map((model) => [model.id, model]));
   for (const combination of modelRadar.combinations.slice(0, 3)) {
@@ -131,6 +135,7 @@ function candidateSection(queue: CandidateQueue): string[] {
 
 function candidateLines(candidate: CandidateQueue["formal"][number], index: number): string[] {
   const derived = candidate.evidenceOrigin === "capability_derived";
+  const modelDerived = derived && candidate.sourceType === "model-catalog";
   const summarizedSocial = candidate.evidenceOrigin === "user_evidence" && candidate.evidencePrecision === "semantic";
   const missingFields = displayMissingFields(candidate);
   const trendStatus = trendStatusLabel(candidate);
@@ -138,7 +143,9 @@ function candidateLines(candidate: CandidateQueue["formal"][number], index: numb
     `### ${index}. ${candidate.term}`,
     `- 为什么现在：${candidate.whyNow?.join("；") ?? excerpt(candidate.reason, 100)}`,
     derived
-      ? `- 类型：产品能力推导，${trendStatus}\n- 证据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`
+      ? modelDerived
+        ? `- 类型：产品能力推导，${trendStatus}\n- 能力依据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)}`
+        : `- 类型：产品能力推导，${trendStatus}\n- 证据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`
       : summarizedSocial
         ? `- 类型：社媒观点归纳，${trendStatus}\n- 证据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`
       : `- 用户原话：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`,

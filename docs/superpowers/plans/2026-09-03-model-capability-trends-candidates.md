@@ -27,7 +27,7 @@
 - Model names, versions, platform slugs, and broad labels never become query text.
 - Formal means “send to the manual Trends check”; it does not mean demand is proven.
 - No new credentials, paid API, automatic Trends measurement, or external source dependency is introduced.
-- The existing maximum of 10 formal verification candidates remains in force.
+- The existing maximum of 10 formal verification candidates remains in force; model signals may contribute multiple distinct concrete capabilities, while non-model capability evidence keeps its existing source-entity diversity guard.
 
 ### Task 1: Lock the new candidate policy with failing tests
 
@@ -236,7 +236,59 @@ pnpm exec vitest run tests/domain/model-capabilities.test.ts
 
 Expected: all capability tests pass, every mapping retains at least one model URL, and no model name or opaque tag becomes a query.
 
-### Task 5: Validate real output and land the change
+### Task 5: Filter mature baseline capabilities from the daily queue
+
+**Files:** src/domain/model-capabilities.ts, src/domain/candidates.ts, src/report/markdown.ts, tests/candidates.test.ts, tests/report.test.ts
+
+- [ ] Step 1: Add a fixed baseline query predicate.
+
+Treat common, already-established model categories such as image to video, text to image generator, text to video generator, text to speech, speech to text, text translation, local inference engine, image editing, image style transfer, image segmentation, image classification, and deepfake detection as inventory context rather than daily new-word candidates. Keep the mappings in JSON, but do not add baseline model demands to either candidate lane.
+
+~~~typescript
+export function isBaselineModelQuery(value: string): boolean {
+  return BASELINE_MODEL_QUERIES.has(normalizeExpression(value).normalized);
+}
+~~~
+
+- [ ] Step 2: Filter baseline model demands before candidate creation.
+
+In buildCandidateQueue, skip a demand only when it is from model-catalog and capability_derived and isBaselineModelQuery returns true. Preserve concrete modifiers, explicit combinations, direct social evidence, and all provenance fields.
+
+- [ ] Step 3: Keep baseline mappings out of the compact report list.
+
+Render only non-baseline mappings in the model radar and show the number omitted as “常规能力略过 N 条”. Keep total normalized capability count and all JSON projections unchanged.
+
+- [ ] Step 4: Allow multiple distinct model capabilities from one source signal.
+
+In selectDiverseFormal, apply the one-capability-per-source-signal guard to non-model capability-derived candidates only. A single model description can legitimately expose region editing, layer separation, and multi-reference editing as separate Trends queries; the global formal limit still bounds the queue.
+
+- [ ] Step 5: Run focused tests and confirm GREEN.
+
+Run:
+
+~~~bash
+pnpm exec vitest run tests/candidates.test.ts tests/report.test.ts
+~~~
+
+Expected: mature baseline terms are absent from today’s queue, concrete capability terms remain, and the report explains the omission instead of presenting the baseline as a new opportunity.
+
+- [ ] Step 6: Rank combinations and concrete modifiers above ordinary capability categories.
+
+Use a deterministic model-query priority: explicit combination tasks first, then capability queries containing concrete modifiers such as product, region, multi-reference, layer, sequential, style, or text rendering. Use this priority for both candidate ordering and the compact model radar list; keep the formal queue capped at 10.
+
+- [ ] Step 7: Render model provenance as capability evidence.
+
+For model-catalog candidates, show the concrete capability as why-now context and show a compact “能力依据” line. Do not append social author/date placeholders to model records; the source URL remains the authoritative model evidence.
+
+- [ ] Step 8: Add human-readable capability summaries.
+
+Map each supported concrete capability to one concise Chinese explanation of what the model enables. Include that explanation in the demand evidence and why-now line, while retaining the original catalog text and Trends query. Do not invent audience, demand, growth, or monetization claims.
+
+- [ ] Step 9: Verify the report reads as decisions, not a taxonomy dump.
+
+The model radar line must contain the task query, the Chinese capability summary, the “待 Google Trends 验证” state, and the source URL. The formal queue must not show “未知作者” or “未知日期” for model records.
+
+### Task 6: Validate real output and land the change
 
 **Files:** inspect data/runs/2026-09-03/report.md and model projections; do not add generated artifacts to git.
 

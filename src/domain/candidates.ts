@@ -1,5 +1,6 @@
 import type { DemandExpression, Expression, ExpressionCluster, RawSignal, SeedTerm, SourceRole, SourceType, TrendVerification } from "../types.js";
 import { normalizeExpression } from "./normalize.js";
+import { isBaselineModelQuery, modelCapabilitySummary, modelQueryPriority } from "./model-capabilities.js";
 import { clusterSeedTerms } from "./expression-clusters.js";
 import { extractSeedTerms } from "./seed-terms.js";
 
@@ -69,6 +70,7 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
   for (const demand of options.demandExpressions ?? []) {
     const signal = signalById.get(demand.rawSignalId);
     if (!signal || demand.qualityState === "rejected") continue;
+    if (signal.sourceType === "model-catalog" && demand.origin === "capability_derived" && isBaselineModelQuery(demand.normalizedText)) continue;
     const candidate = candidateForDemand(signal, demand, now, options.region ?? "CN", feedback);
     addCandidate(candidate.lane === "formal" ? formal : backup, candidate);
   }
@@ -120,9 +122,10 @@ function selectDiverseFormal(items: RadarCandidate[], limit: number): RadarCandi
   const selected = new Map<string, RadarCandidate>();
   const capabilitySignals = new Set<string>();
   const select = (item: RadarCandidate): void => {
-    if (item.evidenceOrigin === "capability_derived" && capabilitySignals.has(item.sourceSignalId)) return;
+    const limitCapabilityPerSignal = item.evidenceOrigin === "capability_derived" && item.sourceType !== "model-catalog";
+    if (limitCapabilityPerSignal && capabilitySignals.has(item.sourceSignalId)) return;
     selected.set(item.candidateId, item);
-    if (item.evidenceOrigin === "capability_derived") capabilitySignals.add(item.sourceSignalId);
+    if (limitCapabilityPerSignal) capabilitySignals.add(item.sourceSignalId);
   };
   for (const sourceType of sourceTypes) {
     for (const item of items.filter((candidate) => candidate.sourceType === sourceType).slice(0, perSource)) select(item);
@@ -182,7 +185,7 @@ function candidateForDemand(signal: RawSignal, demand: DemandExpression, now: nu
   const normalizedDemandText = demand.text.trim();
   const broadCapability = demand.origin === "capability_derived" && (broadCapabilityPattern.test(normalizedDemandText) || normalizedDemandText.split(/\s+/u).length > 5);
   const modelCatalogOnly = signal.sourceType === "model-catalog" && demand.origin === "capability_derived";
-  const score = 140 + demand.qualityScore + recent + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
+  const score = 140 + demand.qualityScore + recent + (modelCatalogOnly ? modelQueryPriority(normalizedDemandText) : 0) + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
   const formal = demand.qualityState !== "rejected" && precision !== "inferred" && !broadCapability && decision !== "false_positive";
   const missingFields = modelCatalogOnly
     ? formal ? ["Google Trends 7d"] : ["验证真实搜索表达", "Google Trends 7d"]
@@ -195,8 +198,13 @@ function candidateForDemand(signal: RawSignal, demand: DemandExpression, now: nu
     lane: formal ? "formal" : "backup", sourceSignalId: signal.id, sourceUrl: demand.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}), ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
     trendsUrl: buildTrendsUrl(demand.text, region), score, missingFields,
-    evidenceQuote: demand.evidenceQuote, evidenceKind: demand.type, evidenceOrigin: demand.origin, evidenceTransformation: demand.transformation, evidencePrecision: precision, noveltyScore: score, ...(modelCatalogOnly ? { qualificationReason: "模型能力推导，优先验证 Google Trends 过去 7 天增速" } : {}), whyNow: [demand.origin === "capability_derived" ? "产品能力可转成搜索词" : precision === "exact" ? "正文出现明确需求表达" : precision === "semantic" ? "原文语义可归纳为搜索词" : "社媒出现待验证的新说法"], recentMentions: 1, baselineMentions: 0,
+    evidenceQuote: demand.evidenceQuote, evidenceKind: demand.type, evidenceOrigin: demand.origin, evidenceTransformation: demand.transformation, evidencePrecision: precision, noveltyScore: score, ...(modelCatalogOnly ? { qualificationReason: "模型能力推导，优先验证 Google Trends 过去 7 天增速" } : {}), whyNow: [modelCatalogOnly ? `模型能力：${modelCapabilitySummaryFromDemand(demand)}` : demand.origin === "capability_derived" ? "产品能力可转成搜索词" : precision === "exact" ? "正文出现明确需求表达" : precision === "semantic" ? "原文语义可归纳为搜索词" : "社媒出现待验证的新说法"], recentMentions: 1, baselineMentions: 0,
   };
+}
+
+function modelCapabilitySummaryFromDemand(demand: DemandExpression): string {
+  const match = demand.evidenceQuote.match(/能力总结：([^；]+)/u)?.[1]?.trim();
+  return match ?? modelCapabilitySummary(demand.text);
 }
 
 function inferEvidencePrecision(demand: DemandExpression): NonNullable<DemandExpression["evidencePrecision"]> {

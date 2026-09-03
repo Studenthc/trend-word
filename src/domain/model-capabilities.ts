@@ -3,6 +3,67 @@ import type { DemandExpression, KeywordModelMapping, ModelCapability, ModelRecor
 
 export type ModelCapabilityRadar = { capabilities: ModelCapability[]; mappings: KeywordModelMapping[] };
 
+const BASELINE_MODEL_QUERIES = new Set([
+  "image editing",
+  "image segmentation",
+  "image style transfer",
+  "image to video",
+  "local inference engine",
+  "speech to text",
+  "text to image generator",
+  "text to speech",
+  "text translation",
+  "text to video generator",
+]);
+
+const CAPABILITY_SUMMARIES: Record<string, string> = {
+  "image-to-video": "根据图片生成视频",
+  "image-to-video-with-audio": "根据图片生成带音频的视频",
+  "reference-to-video": "根据参考图或参考内容生成视频",
+  "character-consistent-video": "让视频中的角色保持一致",
+  "product-photo-to-video": "把商品图转成展示视频",
+  "first-last-frame-video": "用首尾帧控制视频生成",
+  "speech-to-text-translation": "把语音识别并翻译成目标语言",
+  "lip-sync": "让视频人物口型匹配音频",
+  "accurate-text-rendering": "生成带准确文字的图片",
+  "example-based-image-editing": "用示例图指导图片编辑",
+  "editable-svg": "生成可编辑的 SVG",
+  "local-inference": "在本地设备运行模型推理",
+  "text-to-image": "根据文字生成图片",
+  "text-to-video": "根据文字生成视频",
+  "text-to-speech": "把文字转换为语音",
+  "speech-to-text": "把语音转换为文字",
+  translation: "把文本翻译成目标语言",
+  "image-editing": "编辑图片中的指定内容",
+  "region-specific-image-editing": "只修改图片中的指定区域或元素，保留其余画面",
+  "multi-reference-image-editing": "同时使用多张参考图进行图片编辑",
+  "layer-aware-image-editing": "按图层分离并编辑图片",
+  "sequential-image-editing": "连续多轮编辑图片并保持画面一致",
+  "image-style-transfer": "把参考风格迁移到目标图片",
+  "text-rendering": "生成带准确文字的图片",
+  "image-segmentation": "把图片中的主体与背景分离",
+  "image-classification": "识别并分类图片内容",
+  "deepfake-detection": "检测图片或视频是否为深度伪造",
+};
+
+export function modelCapabilitySummary(capability: string): string {
+  return CAPABILITY_SUMMARIES[capability] ?? capability.replace(/[-_]+/gu, " ");
+}
+
+export function isBaselineModelQuery(value: string): boolean {
+  return BASELINE_MODEL_QUERIES.has(normalizeExpression(value).normalized);
+}
+
+const CONCRETE_QUERY_MARKERS = ["product", "photo", "region", "multi", "reference", "layer", "sequential", "style", "typography", "text", "deepfake", "local", "voiceover"];
+
+export function modelQueryPriority(value: string): number {
+  const normalized = normalizeExpression(value).normalized;
+  if (!normalized) return 0;
+  const markerScore = CONCRETE_QUERY_MARKERS.filter((marker) => normalized.includes(marker)).length * 6;
+  const combinationScore = /(?:voiceover|from image|speech translation)/iu.test(normalized) ? 40 : 0;
+  return combinationScore + Math.min(markerScore, 30);
+}
+
 const QUERY_BY_CAPABILITY: Record<string, string> = {
   "image-to-video": "image to video",
   "image-editing": "image editing",
@@ -73,12 +134,14 @@ export function modelMappingsToDemandExpressions(mappings: KeywordModelMapping[]
     const model = mapping.modelIds.map((id) => modelById.get(id)).find((item): item is ModelRecord => Boolean(item));
     if (!model) return [];
     const firstSeenAt = model.updatedAt ?? model.createdAt ?? "unknown";
-    const quote = `模型目录能力：${mapping.originalText}`.slice(0, 500);
+    const capability = mapping.capabilityId.replace(/^capability-/u, "");
+    const summary = modelCapabilitySummary(capability);
+    const quote = `能力总结：${summary}；模型目录依据：${mapping.originalText}`.slice(0, 500);
     return [{
       id: `demand-model-${mapping.normalizedKeyword}-${index}`, text: mapping.keyword, normalizedText: mapping.normalizedKeyword, type: "task" as const,
       rawSignalId: model.sourceSignalId, sourceEntityId: mapping.id, sourceType: "model-catalog" as const, sourceUrl: model.modelUrl,
       evidenceQuote: quote, evidenceLocation: "metadata" as const, evidenceGrade: "inferred" as const, qualityState: "review" as const, qualityScore: 55,
-      origin: "capability_derived" as const, sourceText: mapping.originalText.slice(0, 2000), transformation: mapping.transformation, evidencePrecision: "semantic" as const, firstSeenAt,
+      origin: "capability_derived" as const, sourceText: mapping.originalText.slice(0, 2000), transformation: `${mapping.transformation}；能力总结：${summary}`, evidencePrecision: "semantic" as const, firstSeenAt,
     } satisfies DemandExpression];
   });
 }

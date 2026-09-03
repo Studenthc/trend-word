@@ -46,23 +46,37 @@ describe("daily radar report", () => {
   });
   it("renders compact model capabilities and combination provenance", () => {
     const models: ModelRecord[] = [
-      { id: "huggingface:acme/image", platform: "huggingface", modelName: "acme/image", modelUrl: "https://huggingface.co/acme/image", inputTypes: ["image"], outputTypes: ["video"], claimedCapabilities: ["image-to-video"], tags: [], notes: [], sourceSignalId: "signal-image", evidenceStatus: "verified" },
+      { id: "huggingface:acme/text-rendering", platform: "huggingface", modelName: "acme/text-rendering", modelUrl: "https://huggingface.co/acme/text-rendering", inputTypes: ["text"], outputTypes: ["image"], claimedCapabilities: ["text-rendering"], tags: [], notes: [], sourceSignalId: "signal-image", evidenceStatus: "verified" },
       { id: "fal-ai:acme/tts", platform: "fal-ai", modelName: "acme/tts", modelUrl: "https://fal.ai/models/acme/tts/text-to-speech", inputTypes: ["text"], outputTypes: ["audio"], claimedCapabilities: ["text-to-speech"], tags: [], notes: [], sourceSignalId: "signal-tts", evidenceStatus: "partial" },
     ];
-    const capability: ModelCapability = { id: "capability-image-to-video", capability: "image-to-video", modelIds: [models[0]!.id], sourceSignalIds: [models[0]!.sourceSignalId], platforms: ["huggingface"], inputTypes: ["image"], outputTypes: ["video"], sourceQuotes: ["image-to-video"], sourceUrls: [models[0]!.modelUrl], evidenceStatus: "verified" };
-    const mapping: KeywordModelMapping = { id: "keyword-model-image-to-video", keyword: "image to video", normalizedKeyword: "image to video", capabilityId: capability.id, modelIds: [models[0]!.id], sourceSignalIds: [models[0]!.sourceSignalId], sourceUrls: [models[0]!.modelUrl], originalText: "image-to-video", transformation: "derived", origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred" };
+    const capability: ModelCapability = { id: "capability-text-rendering", capability: "text-rendering", modelIds: [models[0]!.id], sourceSignalIds: [models[0]!.sourceSignalId], platforms: ["huggingface"], inputTypes: ["text"], outputTypes: ["image"], sourceQuotes: ["text-rendering"], sourceUrls: [models[0]!.modelUrl], evidenceStatus: "verified" };
+    const mapping: KeywordModelMapping = { id: "keyword-model-text-rendering", keyword: "image generator with text", normalizedKeyword: "image generator with text", capabilityId: capability.id, modelIds: [models[0]!.id], sourceSignalIds: [models[0]!.sourceSignalId], sourceUrls: [models[0]!.modelUrl], originalText: "text-rendering", transformation: "derived", origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred" };
     const combination: ModelCombination = { combinationId: "combination-image-to-video-text-to-speech", steps: [{ modelIds: [models[0]!.id], capability: "image-to-video", inputTypes: ["image"], outputTypes: ["video"] }, { modelIds: [models[1]!.id], capability: "text-to-speech", inputTypes: ["text"], outputTypes: ["audio"] }], capabilityChain: ["image-to-video", "text-to-speech"], combinedQuery: "product photo video with voiceover", candidateModels: models.map((model) => model.id), compatibilityReason: "explicit recipe", feasibilityNotes: ["script input"], evidenceStatus: "inferred" };
     const modelRadar: ModelRadarReport = { models, capabilities: [capability], mappings: [mapping], combinations: [combination] };
     const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [{ sourceType: "model-catalog", status: "partial", attemptedAt: "2026-09-03T00:00:00.000Z", itemCount: 2, failureReasons: [], coverageNotes: [] }], signals: [], expressions: [], evidence: [], opportunities: [], modelRadar });
 
     expect(report).toContain("## 模型能力雷达");
-    expect(report).toContain("模型目录：Hugging Face 1 条 · fal.ai 1 条；归一化能力 1 条；需求表达 1 条；组合假设 1 条");
-    expect(report).toContain("产品能力推导：image to video · 待 Google Trends 验证");
+    expect(report).toContain("模型目录：Hugging Face 1 条 · fal.ai 1 条；归一化能力 1 条；待查能力 1 条；组合假设 1 条");
+    expect(report).toContain("产品能力推导：image generator with text · 生成带准确文字的图片 · 待 Google Trends 验证");
     expect(report).toContain("组合假设：product photo video with voiceover · image-to-video -> text-to-speech · 待 Google Trends 验证");
     expect(report).not.toContain("待外部需求证据");
-    expect(report).toContain("https://huggingface.co/acme/image");
-    expect(report).not.toContain("用户原话：image-to-video");
+    expect(report).toContain("https://huggingface.co/acme/text-rendering");
+    expect(report).not.toContain("用户原话：text-rendering");
     expect(report).not.toContain("这是一个很长的模型描述");
+  });
+
+  it("renders model-derived candidates as capability evidence without social metadata", () => {
+    const candidates: CandidateQueue = {
+      formal: [{ candidateId: "candidate-model-region", term: "region specific image editing", sourceType: "model-catalog", context: "模型目录能力：region-specific image editing", reason: "模型能力推导，优先验证 Google Trends 过去 7 天增速", lane: "formal", sourceSignalId: "model-region", sourceUrl: "https://fal.ai/models/acme/region-edit", trendsUrl: "https://trends.google.com/trends/explore?q=region", score: 210, missingFields: ["Google Trends 7d"], evidenceOrigin: "capability_derived", evidenceQuote: "模型目录能力：region-specific image editing", evidencePrecision: "semantic", whyNow: ["模型能力可用：region specific image editing"] }],
+      backup: [],
+    };
+    const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates });
+
+    expect(report).toContain("为什么现在：模型能力可用：region specific image editing");
+    expect(report).toContain("能力依据：模型目录能力：region-specific image editing");
+    expect(report).not.toContain("未知作者");
+    expect(report).not.toContain("未知日期");
+    expect(report).not.toContain("用户原话：模型目录能力");
   });
 
   it("names an unavailable model platform instead of implying zero demand", () => {

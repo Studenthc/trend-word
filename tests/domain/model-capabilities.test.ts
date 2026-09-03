@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildModelCapabilities, modelMappingsToDemandExpressions } from "../../src/domain/model-capabilities.js";
+import { buildModelCapabilities, modelCapabilitySummary, modelMappingsToDemandExpressions } from "../../src/domain/model-capabilities.js";
 import { parseModelRecord, type ModelRecord } from "../../src/types.js";
 
 function model(overrides: Partial<ModelRecord>): ModelRecord {
@@ -43,6 +43,17 @@ describe("model capability normalization", () => {
 
     expect(expressions).toEqual(expect.arrayContaining([expect.objectContaining({ text: "image to video", rawSignalId: "signal-image", sourceEntityId: result.mappings[0]?.id, origin: "capability_derived", evidenceGrade: "inferred", qualityState: "review", evidencePrecision: "semantic" })]));
     expect(expressions[0]?.sourceText).toContain("image-to-video");
+  });
+
+  it("provides a human-readable capability summary alongside the Trends query", () => {
+    expect(modelCapabilitySummary("multi-reference-image-editing")).toBe("同时使用多张参考图进行图片编辑");
+    const records = [model({ id: "huggingface:summary", modelName: "acme/summary", modelUrl: "https://huggingface.co/acme/summary", sourceSignalId: "signal-summary", claimedCapabilities: ["multi-reference-image-editing"] })];
+    const radar = buildModelCapabilities(records);
+    const expressions = modelMappingsToDemandExpressions(radar.mappings, records);
+
+    const expression = expressions.find((item) => item.text === "multi reference image editing");
+    expect(expression?.evidenceQuote).toContain("能力总结：同时使用多张参考图进行图片编辑");
+    expect(expression?.transformation).toContain("能力总结");
   });
 
   it("recovers concrete capabilities from catalog descriptions and labels", () => {
