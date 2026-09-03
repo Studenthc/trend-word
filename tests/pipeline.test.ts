@@ -11,6 +11,9 @@ describe("runRadar", () => {
     expect(result.summary.date).toBe("2026-08-24");
     expect(result.summary.sourcesAttempted).toContain("fixtures");
     expect(result.report).toContain("新词机会雷达");
-    expect(await readdir(path.join(workspaceRoot, "data", "runs", "2026-08-24"))).toEqual(expect.arrayContaining(["seed-terms.json", "expression-clusters.json", "candidates.json"]));
+    expect(await readdir(path.join(workspaceRoot, "data", "runs", "2026-08-24"))).toEqual(expect.arrayContaining(["seed-terms.json", "expression-clusters.json", "demand-expressions.json", "candidates.json"]));
+    expect(result.report).toContain("需求抽取漏斗");
+    expect(result.report).toContain("需求表达 1");
+    expect(result.report).toContain("automating repetitive workflows");
   });
 });

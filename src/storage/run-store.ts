@@ -9,6 +9,7 @@ import {
   discoverySummarySchema,
   seedTermSchema,
   expressionClusterSchema,
+  demandExpressionSchema,
   trendVerificationSchema,
   type RawSignal,
   type Expression,
@@ -17,7 +18,7 @@ import {
 } from "../types.js";
 import { appendJsonl, readJsonl, replaceJson } from "./jsonl.js";
 
-type ProjectionName = "expressions" | "opportunities" | "evidence" | "run-summary" | "discovery-summary" | "seed-terms" | "expression-clusters" | "trend-verifications";
+type ProjectionName = "expressions" | "opportunities" | "evidence" | "run-summary" | "discovery-summary" | "seed-terms" | "expression-clusters" | "demand-expressions" | "trend-verifications";
 type ImportName = "opportunities" | "evidence";
 type Validator = (value: unknown) => unknown;
 
@@ -29,6 +30,7 @@ const projectionValidators: Record<ProjectionName, Validator> = {
   "discovery-summary": (value) => discoverySummarySchema.parse(value),
   "seed-terms": (value) => seedTermSchema.array().parse(value),
   "expression-clusters": (value) => expressionClusterSchema.array().parse(value),
+  "demand-expressions": (value) => demandExpressionSchema.array().parse(value),
   "trend-verifications": (value) => trendVerificationSchema.array().parse(value),
 };
 

@@ -13,6 +13,9 @@ export const sourceTypeSchema = z.enum([
 
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 
+export const sourceRoleSchema = z.enum(["discovery", "validation"]);
+export type SourceRole = z.infer<typeof sourceRoleSchema>;
+
 export const sourceHealthStatusSchema = z.enum(["available", "partial", "blocked", "empty", "unverified"]);
 
 export type SourceHealthStatus = z.infer<typeof sourceHealthStatusSchema>;
@@ -85,6 +88,16 @@ export const seedTermSchema = z.object({
 });
 export type SeedTerm = z.infer<typeof seedTermSchema>;
 export const parseSeedTerm = (value: unknown): SeedTerm => seedTermSchema.parse(value);
+
+export const demandExpressionSchema = z.object({
+  id: z.string(), text: z.string().min(2).max(80), normalizedText: z.string(),
+  type: z.enum(["task", "pain", "alternative", "play"]), rawSignalId: z.string(), sourceEntityId: z.string(),
+  sourceType: sourceTypeSchema, sourceUrl: z.string().url(), evidenceQuote: z.string().min(1).max(500),
+  evidenceLocation: z.enum(["title", "body", "excerpt", "comment", "metadata"]), evidenceGrade: z.enum(["direct", "reported", "estimated", "inferred"]),
+  qualityState: z.enum(["verified", "review", "rejected"]), qualityScore: z.number().min(0).max(100), origin: z.enum(["user_evidence", "capability_derived"]), sourceText: z.string().min(1).max(2000), transformation: z.string().min(1).max(240), evidencePrecision: z.enum(["exact", "semantic", "inferred"]).optional(), failureReason: z.string().optional(), firstSeenAt: z.string(),
+});
+export type DemandExpression = z.infer<typeof demandExpressionSchema>;
+export const parseDemandExpression = (value: unknown): DemandExpression => demandExpressionSchema.parse(value);
 
 export const expressionClusterSchema = z.object({
   id: z.string(), primaryTerm: z.string(), normalizedTerms: z.array(z.string()), aliases: z.array(z.string()),
@@ -241,6 +254,17 @@ export const discoverySummarySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   totalRawSignals: z.number().int().nonnegative(),
   verificationPoolCount: z.number().int().nonnegative(),
+  entityCount: z.number().int().nonnegative().optional(),
+  detailAttempted: z.number().int().nonnegative().optional(),
+  detailSucceeded: z.number().int().nonnegative().optional(),
+  detailEmpty: z.number().int().nonnegative().optional(),
+  detailFailed: z.number().int().nonnegative().optional(),
+  demandExpressionCount: z.number().int().nonnegative().optional(),
+  directDemandCount: z.number().int().nonnegative().optional(),
+  capabilityDerivedCount: z.number().int().nonnegative().optional(),
+  inferredDemandCount: z.number().int().nonnegative().optional(),
+  qualityRejectedCount: z.number().int().nonnegative().optional(),
+  formalDemandCount: z.number().int().nonnegative().optional(),
   sourceQuality: sourceQualitySchema.array(),
 }).strict();
 
@@ -278,6 +302,7 @@ const radarConfigShape = z.object({
   sources: z.object({
     required: z.array(sourceTypeSchema),
     bestEffort: z.array(sourceTypeSchema),
+    validation: z.array(sourceTypeSchema),
     manual: z.boolean(),
   }).strict(),
   scys: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }).strict(),
