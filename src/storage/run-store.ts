@@ -10,6 +10,10 @@ import {
   seedTermSchema,
   expressionClusterSchema,
   demandExpressionSchema,
+  modelCapabilitySchema,
+  modelCombinationSchema,
+  modelRecordSchema,
+  keywordModelMappingSchema,
   trendVerificationSchema,
   type RawSignal,
   type Expression,
@@ -18,7 +22,7 @@ import {
 } from "../types.js";
 import { appendJsonl, readJsonl, replaceJson } from "./jsonl.js";
 
-type ProjectionName = "expressions" | "opportunities" | "evidence" | "run-summary" | "discovery-summary" | "seed-terms" | "expression-clusters" | "demand-expressions" | "trend-verifications";
+type ProjectionName = "expressions" | "opportunities" | "evidence" | "run-summary" | "discovery-summary" | "seed-terms" | "expression-clusters" | "demand-expressions" | "trend-verifications" | "model-inventory" | "capabilities" | "keyword-model-mapping" | "model-combinations";
 type ImportName = "opportunities" | "evidence";
 type Validator = (value: unknown) => unknown;
 
@@ -32,6 +36,10 @@ const projectionValidators: Record<ProjectionName, Validator> = {
   "expression-clusters": (value) => expressionClusterSchema.array().parse(value),
   "demand-expressions": (value) => demandExpressionSchema.array().parse(value),
   "trend-verifications": (value) => trendVerificationSchema.array().parse(value),
+  "model-inventory": (value) => modelRecordSchema.array().parse(value),
+  capabilities: (value) => modelCapabilitySchema.array().parse(value),
+  "keyword-model-mapping": (value) => keywordModelMappingSchema.array().parse(value),
+  "model-combinations": (value) => modelCombinationSchema.array().parse(value),
 };
 
 const historyValidator: Validator = (value) => opportunitySchema.array().parse(value);

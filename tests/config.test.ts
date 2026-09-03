@@ -21,7 +21,7 @@ describe("loadConfig", () => {
       expect(config).toEqual({
         sources: {
           required: ["producthunt", "github"],
-          bestEffort: ["x-timeline", "reddit-feed"],
+          bestEffort: ["x-timeline", "reddit-feed", "model-catalog"],
           validation: ["scys-mcp"],
           manual: true,
         },
@@ -29,6 +29,7 @@ describe("loadConfig", () => {
         discovery: { recentDays: 7, maxSourcesPerQuery: 3 },
         producthunt: { enabled: true, limit: 50 },
         github: { enabled: true, queries: ["ai tool", "mcp", "agent"], limit: 30 },
+        modelCatalog: { enabled: true, platforms: ["huggingface", "fal-ai"], recentDays: 7, limitPerPlatform: 20 },
         xTimeline: { enabled: true, handles: ["OpenAI", "AnthropicAI", "karpathy", "sama", "levelsio"] },
         redditFeed: { enabled: true, communities: ["Entrepreneur", "SaaS", "artificial"] },
         googleTrends: { mode: "manual-or-optional", region: "US" },

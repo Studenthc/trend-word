@@ -7,6 +7,7 @@ const problemMarkers = /(?<!需)(?:求|需要|怎么|无法|打不开|保存不�
 
 export function extractSeedTerms(signal: RawSignal): SeedTerm[] {
   if (signal.evidenceStatus === "failed") return [];
+  if (signal.sourceType === "model-catalog") return [];
   const candidates: Array<{ text: string; location: SeedTermLocation; quote: string; reason: string }> = [];
   const fields: Array<[SeedTermLocation, string | undefined]> = [
     ["title", signal.title], ["excerpt", signal.excerpt], ["body", signal.body],

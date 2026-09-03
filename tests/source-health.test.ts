@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
-import type { RawSignal, SourceCollection, SourceHealth, SourceContext } from "../src/types.js";
+import { parseModelRecord, type ModelRecord, type RawSignal, type SourceCollection, type SourceHealth, type SourceContext } from "../src/types.js";
 import { runSafeSource as executeSafeSource, type SafeSourceOptions, type SourceCollector } from "../src/sources/source.js";
 
 async function testContext(): Promise<SourceContext> {
@@ -39,7 +39,25 @@ function collection(sourceType: SourceHealth["sourceType"], signals: RawSignal[]
   return { signals, health: health(sourceType, { itemCount: signals.length, ...overrides }) };
 }
 
+function model(): ModelRecord {
+  return parseModelRecord({
+    id: "huggingface:acme/image-to-video", platform: "huggingface", modelName: "acme/image-to-video",
+    modelUrl: "https://huggingface.co/acme/image-to-video", updatedAt: "2026-08-23T00:00:00.000Z",
+    inputTypes: ["image"], outputTypes: ["video"], claimedCapabilities: ["image-to-video"], tags: ["image-to-video"],
+    notes: [], sourceSignalId: "model-catalog-huggingface-acme-image-to-video", evidenceStatus: "verified",
+  });
+}
+
 describe("runSafeSource", () => {
+  it("preserves validated model records returned by a model catalog source", async () => {
+    const result = await runSafeSource("model-catalog", async () => ({
+      signals: [signal("model-catalog-huggingface-acme-image-to-video", "model-catalog")],
+      modelRecords: [model()],
+      health: health("model-catalog"),
+    }));
+
+    expect(result.modelRecords).toEqual([model()]);
+  });
   it("returns successful items with available health", async () => {
     let receivedContext: SourceContext | undefined;
     const result = await runSafeSource("fixtures", async (context) => {

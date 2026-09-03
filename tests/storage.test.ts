@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { appendJsonl } from "../src/storage/jsonl.js";
 import { RunStore } from "../src/storage/run-store.js";
-import type { DemandExpression, Evidence, Opportunity, RawSignal, RunSummary } from "../src/types.js";
+import { parseModelRecord, type DemandExpression, type Evidence, type ModelRecord, type Opportunity, type RawSignal, type RunSummary } from "../src/types.js";
 
 async function createTempRunStore(): Promise<RunStore> {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "trend-word-storage-"));
@@ -74,7 +74,24 @@ function runSummary(): RunSummary {
   };
 }
 
+function model(): ModelRecord {
+  return parseModelRecord({
+    id: "huggingface:acme/image-to-video", platform: "huggingface", modelName: "acme/image-to-video",
+    modelUrl: "https://huggingface.co/acme/image-to-video", updatedAt: "2026-08-23T00:00:00.000Z",
+    inputTypes: ["image"], outputTypes: ["video"], claimedCapabilities: ["image-to-video"], tags: ["image-to-video"],
+    notes: [], sourceSignalId: "model-catalog-huggingface-acme-image-to-video", evidenceStatus: "verified",
+  });
+}
+
 describe("RunStore", () => {
+  it("stores and validates model catalog projections", async () => {
+    const store = await createTempRunStore();
+    const record = model();
+
+    await store.writeProjection("model-inventory", [record]);
+
+    await expect(store.readProjection<ModelRecord[]>("model-inventory")).resolves.toEqual([record]);
+  });
   it("stores and validates demand expression projections", async () => {
     const store = await createTempRunStore();
     const value: DemandExpression[] = [{

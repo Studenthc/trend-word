@@ -8,6 +8,12 @@ export type RunSummaryInput = {
   expressions: Expression[];
   evidence: Evidence[];
   opportunities: Opportunity[];
+  modelInventoryCount?: number;
+  capabilityCount?: number;
+  modelKeywordCount?: number;
+  modelCombinationCount?: number;
+  modelFormalDemandCount?: number;
+  modelWatchDemandCount?: number;
   reportPath?: string;
 };
 
@@ -28,6 +34,12 @@ export function summarizeRun(input: RunSummaryInput): RunSummary {
     expressionCount: input.expressions.length,
     evidenceCount: input.evidence.length,
     opportunityCount: input.opportunities.length,
+    ...(input.modelInventoryCount !== undefined ? { modelInventoryCount: input.modelInventoryCount } : {}),
+    ...(input.capabilityCount !== undefined ? { capabilityCount: input.capabilityCount } : {}),
+    ...(input.modelKeywordCount !== undefined ? { modelKeywordCount: input.modelKeywordCount } : {}),
+    ...(input.modelCombinationCount !== undefined ? { modelCombinationCount: input.modelCombinationCount } : {}),
+    ...(input.modelFormalDemandCount !== undefined ? { modelFormalDemandCount: input.modelFormalDemandCount } : {}),
+    ...(input.modelWatchDemandCount !== undefined ? { modelWatchDemandCount: input.modelWatchDemandCount } : {}),
     evidenceGradeCounts,
     candidateStatusCounts,
     failedSources,

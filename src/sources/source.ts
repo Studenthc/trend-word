@@ -1,4 +1,4 @@
-import { parseRawSignal, parseSourceHealth, type RawSignal, type SourceAdapter, type SourceCollection, type SourceContext, type SourceType } from "../types.js";
+import { parseModelRecord, parseRawSignal, parseSourceHealth, type ModelRecord, type RawSignal, type SourceAdapter, type SourceCollection, type SourceContext, type SourceType } from "../types.js";
 import { classifySourceError, failureHealth, normalizeSourceHealth } from "../health/source-health.js";
 
 export type { SourceAdapter, SourceCollection };
@@ -38,7 +38,7 @@ export async function runSafeSource(sourceType: SourceType, collect: SourceColle
       const result = await collect(options.context);
       const parsed = validateCollection(sourceType, result);
       const health = normalizeSourceHealth(sourceType, parsed.health, parsed.signals.length, attemptedAt);
-      return { signals: parsed.signals, health };
+      return { signals: parsed.signals, health, ...(parsed.modelRecords ? { modelRecords: parsed.modelRecords } : {}) };
     } catch (error) {
       const classified = classifySourceError(error);
       if (classified.retryable && attempt === 1) {
@@ -84,7 +84,16 @@ function validateCollection(sourceType: SourceType, result: unknown): SourceColl
   if (health.endpointCount !== undefined && health.successfulEndpointCount !== undefined && health.successfulEndpointCount > health.endpointCount) {
     throw new Error("invalid source health: successfulEndpointCount exceeds endpointCount");
   }
-  return { signals, health };
+  let modelRecords: ModelRecord[] | undefined;
+  if ("modelRecords" in result && result.modelRecords !== undefined) {
+    try {
+      if (!Array.isArray(result.modelRecords)) throw new Error("modelRecords must be an array");
+      modelRecords = result.modelRecords.map(parseModelRecord);
+    } catch (error) {
+      throw new Error(`invalid model record: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { signals, health, ...(modelRecords ? { modelRecords } : {}) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

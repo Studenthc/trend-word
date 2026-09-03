@@ -6,6 +6,7 @@ export const sourceTypeSchema = z.enum([
   "github",
   "x-timeline",
   "reddit-feed",
+  "model-catalog",
   "google-trends",
   "manual",
   "fixtures",
@@ -67,6 +68,8 @@ export const rawSignalSchema = z.object({
   engagement: engagementSchema.optional(),
   tags: z.array(z.string()).optional(),
   permission: z.string().optional(),
+  parentSignalId: z.string().optional(),
+  signalKind: z.enum(["entity", "feedback"]).optional(),
   syncWarnings: z.array(z.string()).optional(),
   sourceFingerprint: z.string(),
   evidenceStatus: z.enum(["verified", "partial", "failed"]),
@@ -75,6 +78,45 @@ export const rawSignalSchema = z.object({
 
 export type RawSignal = z.infer<typeof rawSignalSchema>;
 export const parseRawSignal = (value: unknown): RawSignal => rawSignalSchema.parse(value);
+
+export const modelPlatformSchema = z.enum(["huggingface", "fal-ai"]);
+export type ModelPlatform = z.infer<typeof modelPlatformSchema>;
+export const modelEvidenceStatusSchema = z.enum(["verified", "partial", "unverified"]);
+export type ModelEvidenceStatus = z.infer<typeof modelEvidenceStatusSchema>;
+
+const modelMetricsSchema = z.object({ likes: z.number().nonnegative().optional(), downloads: z.number().nonnegative().optional(), stars: z.number().nonnegative().optional() }).strict();
+export const modelRecordSchema = z.object({
+  id: z.string(), platform: modelPlatformSchema, modelName: z.string(), modelUrl: z.string().url(),
+  createdAt: z.string().optional(), updatedAt: z.string().optional(), inputTypes: z.array(z.string()), outputTypes: z.array(z.string()),
+  claimedCapabilities: z.array(z.string()), description: z.string().optional(), tags: z.array(z.string()), publicMetrics: modelMetricsSchema.optional(),
+  notes: z.array(z.string()), sourceSignalId: z.string(), evidenceStatus: modelEvidenceStatusSchema,
+}).strict();
+export type ModelRecord = z.infer<typeof modelRecordSchema>;
+export const parseModelRecord = (value: unknown): ModelRecord => modelRecordSchema.parse(value);
+
+export const modelCapabilitySchema = z.object({
+  id: z.string(), capability: z.string(), modelIds: z.array(z.string()), sourceSignalIds: z.array(z.string()), platforms: modelPlatformSchema.array(),
+  inputTypes: z.array(z.string()), outputTypes: z.array(z.string()), sourceQuotes: z.array(z.string()), sourceUrls: z.array(z.string().url()),
+  evidenceStatus: modelEvidenceStatusSchema,
+}).strict();
+export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
+export const parseModelCapability = (value: unknown): ModelCapability => modelCapabilitySchema.parse(value);
+
+export const keywordModelMappingSchema = z.object({
+  id: z.string(), keyword: z.string().min(2).max(80), normalizedKeyword: z.string(), capabilityId: z.string(), modelIds: z.array(z.string()),
+  sourceSignalIds: z.array(z.string()), sourceUrls: z.array(z.string().url()), originalText: z.string().min(1).max(2000),
+  transformation: z.string().min(1).max(240), origin: z.literal("capability_derived"), qualityState: z.literal("review"), evidenceStatus: z.literal("inferred"),
+}).strict();
+export type KeywordModelMapping = z.infer<typeof keywordModelMappingSchema>;
+export const parseKeywordModelMapping = (value: unknown): KeywordModelMapping => keywordModelMappingSchema.parse(value);
+
+const modelCombinationStepSchema = z.object({ modelIds: z.array(z.string()), capability: z.string(), inputTypes: z.array(z.string()), outputTypes: z.array(z.string()) }).strict();
+export const modelCombinationSchema = z.object({
+  combinationId: z.string(), steps: z.array(modelCombinationStepSchema).min(1).max(2), capabilityChain: z.array(z.string()).min(1).max(2),
+  combinedQuery: z.string().min(2).max(80), candidateModels: z.array(z.string()), compatibilityReason: z.string(), feasibilityNotes: z.array(z.string()), evidenceStatus: z.literal("inferred"),
+}).strict();
+export type ModelCombination = z.infer<typeof modelCombinationSchema>;
+export const parseModelCombination = (value: unknown): ModelCombination => modelCombinationSchema.parse(value);
 
 export const seedTermKindSchema = z.enum(["search_term", "product", "model", "feature", "concept", "problem", "play"]);
 export type SeedTermKind = z.infer<typeof seedTermKindSchema>;
@@ -255,6 +297,12 @@ export const discoverySummarySchema = z.object({
   totalRawSignals: z.number().int().nonnegative(),
   verificationPoolCount: z.number().int().nonnegative(),
   entityCount: z.number().int().nonnegative().optional(),
+  modelInventoryCount: z.number().int().nonnegative().optional(),
+  capabilityCount: z.number().int().nonnegative().optional(),
+  modelKeywordCount: z.number().int().nonnegative().optional(),
+  modelCombinationCount: z.number().int().nonnegative().optional(),
+  modelFormalDemandCount: z.number().int().nonnegative().optional(),
+  modelWatchDemandCount: z.number().int().nonnegative().optional(),
   detailAttempted: z.number().int().nonnegative().optional(),
   detailSucceeded: z.number().int().nonnegative().optional(),
   detailEmpty: z.number().int().nonnegative().optional(),
@@ -285,6 +333,12 @@ export const runSummarySchema = z.object({
   expressionCount: z.number().int().nonnegative().optional(),
   evidenceCount: z.number().int().nonnegative().optional(),
   opportunityCount: z.number().int().nonnegative().optional(),
+  modelInventoryCount: z.number().int().nonnegative().optional(),
+  capabilityCount: z.number().int().nonnegative().optional(),
+  modelKeywordCount: z.number().int().nonnegative().optional(),
+  modelCombinationCount: z.number().int().nonnegative().optional(),
+  modelFormalDemandCount: z.number().int().nonnegative().optional(),
+  modelWatchDemandCount: z.number().int().nonnegative().optional(),
   evidenceGradeCounts: z.record(z.number().int().nonnegative()).optional(),
   candidateStatusCounts: z.record(z.number().int().nonnegative()).optional(),
   failedSources: z.array(z.string()).optional(),
@@ -309,6 +363,7 @@ const radarConfigShape = z.object({
   discovery: z.object({ recentDays: z.number().int().positive(), maxSourcesPerQuery: z.number().int().positive() }).strict(),
   producthunt: z.object({ enabled: z.boolean(), limit: z.number().int().positive() }).strict(),
   github: z.object({ enabled: z.boolean(), queries: z.array(z.string()), limit: z.number().int().positive() }).strict(),
+  modelCatalog: z.object({ enabled: z.boolean(), platforms: modelPlatformSchema.array().min(1), recentDays: z.number().int().positive(), limitPerPlatform: z.number().int().positive() }).strict(),
   xTimeline: z.object({ enabled: z.boolean(), handles: z.array(z.string()) }).strict(),
   redditFeed: z.object({ enabled: z.boolean(), communities: z.array(z.string()) }).strict(),
   googleTrends: z.object({ mode: z.literal("manual-or-optional"), region: z.string() }).strict(),
@@ -328,6 +383,7 @@ export type SourceContext = {
 export type SourceCollection = {
   signals: RawSignal[];
   health: SourceHealth;
+  modelRecords?: ModelRecord[];
 };
 
 export type SourceAdapter = {

@@ -11,6 +11,9 @@ function signal(changes: Partial<RawSignal> = {}): RawSignal {
 }
 
 describe("demand expressions", () => {
+  it("does not reinterpret model catalog descriptions as user evidence", () => {
+    expect(extractDemandExpressions(signal({ sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/image-to-video", body: "A model for creating extremely detailed images with fine typography.", signalKind: "entity" }))).toEqual([]);
+  });
   it("extracts task and alternative expressions with source quotes", () => {
     const expressions = extractDemandExpressions(signal());
     expect(expressions.map((item) => item.text)).toEqual(expect.arrayContaining(["automate repetitive customer workflows", "replace Zapier", "self-hosted workflow automation tool"]));

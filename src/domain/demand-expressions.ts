@@ -10,6 +10,7 @@ const MAX_EXPRESSIONS = 3;
 
 export function extractDemandExpressions(signal: RawSignal): DemandExpression[] {
   if (signal.evidenceStatus === "failed") return [];
+  if (signal.sourceType === "model-catalog") return [];
   const rawBody = [signal.body, signal.excerpt].find((value) => value?.trim())?.trim();
   const body = rawBody ? sanitizeMarkdown(rawBody) : undefined;
   if (!body) return [];

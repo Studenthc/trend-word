@@ -16,15 +16,18 @@ import { createProductHuntAdapter, type HttpTransport as ProductHuntHttpTranspor
 import { createScysMcpAdapter, type McpTransport } from "./sources/scys-mcp.js";
 import { createXTimelineAdapter, type HttpTransport as XTimelineHttpTransport } from "./sources/x-timeline.js";
 import { createRedditFeedAdapter, type HttpTransport as RedditHttpTransport } from "./sources/reddit-feed.js";
+import { createModelCatalogAdapter, type ModelCatalogTransport } from "./sources/model-catalog.js";
+import { buildModelCapabilities, modelMappingsToDemandExpressions } from "./domain/model-capabilities.js";
+import { buildModelCombinations, modelCombinationsToDemandExpressions } from "./domain/model-combinations.js";
 import { createHttpTransport, createProductHuntGraphqlTransport, createRedditFallbackTransport, createXApiTransport } from "./sources/http.js";
 import { runSafeSource } from "./sources/source.js";
 import { enrichSignalsWithDetails, type DetailResult } from "./sources/details.js";
 import { loadConfig } from "./config.js";
 import { RunStore } from "./storage/run-store.js";
 import { readCandidateFeedback } from "./storage/feedback-store.js";
-import { parseSourceHealth, type DiscoverySummary, type Evidence, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceRole, type SourceType, type TrendVerification } from "./types.js";
+import { parseSourceHealth, type DiscoverySummary, type Evidence, type ModelCapability, type ModelCombination, type ModelRecord, type Opportunity, type RawSignal, type RunSummary, type SourceAdapter, type SourceHealth, type SourceRole, type SourceType, type TrendVerification } from "./types.js";
 
-type StableSourceType = "scys-mcp" | "producthunt" | "github" | "x-timeline" | "reddit-feed";
+type StableSourceType = "scys-mcp" | "producthunt" | "github" | "x-timeline" | "reddit-feed" | "model-catalog";
 export type InjectedSourceTransports = {
   "scys-mcp"?: McpTransport;
   producthunt?: ProductHuntHttpTransport;
@@ -33,6 +36,9 @@ export type InjectedSourceTransports = {
   "reddit-feed"?: RedditHttpTransport;
   xTimeline?: XTimelineHttpTransport;
   redditFeed?: RedditHttpTransport;
+  modelCatalog?: { huggingface?: ModelCatalogTransport; falAi?: ModelCatalogTransport };
+  huggingface?: ModelCatalogTransport;
+  falAi?: ModelCatalogTransport;
 };
 
 export type RadarRunOptions = {
@@ -96,6 +102,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   const previousOpportunities = await store.readHistory<Opportunity[]>() ?? [];
   const existingRawSignals = await store.readRawSignals();
   let rawSignals: RawSignal[] = [];
+  let modelRecords: ModelRecord[] = [];
   const sourceHealth: SourceHealth[] = [];
   let configurationError: Error | undefined;
 
@@ -125,7 +132,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
 
   const injectedTransports = options.transports ?? options.injectedTransports ?? {};
   for (const sourceName of sourceNames) {
-    if (!(sourceName === "scys-mcp" || sourceName === "producthunt" || sourceName === "github" || sourceName === "x-timeline" || sourceName === "reddit-feed") || sourceHealth.some((item) => item.sourceType === sourceName)) continue;
+    if (!(sourceName === "scys-mcp" || sourceName === "producthunt" || sourceName === "github" || sourceName === "x-timeline" || sourceName === "reddit-feed" || sourceName === "model-catalog") || sourceHealth.some((item) => item.sourceType === sourceName)) continue;
     const adapter = stableAdapter(sourceName, options.adapters?.[sourceName], injectedTransports, config);
     if (!adapter) {
       sourceHealth.push({ sourceType: sourceName, status: "unverified", attemptedAt, itemCount: 0, failureReasons: ["no injected transport configured"], coverageNotes: ["source coverage unavailable; no implicit network request made"] });
@@ -133,6 +140,7 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
     }
     const collection = await runSafeSource(sourceName, adapter.collect, { context: sourceContext, attemptedAt });
     rawSignals.push(...collection.signals);
+    if (collection.modelRecords) modelRecords.push(...collection.modelRecords);
     sourceHealth.push(collection.health);
   }
   for (const sourceName of sourceNames) {
@@ -149,12 +157,15 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   rawSignals = detailEnrichment.signals;
   const deduped = dedupeRawSignals(rawSignals);
   const seedTerms = deduped.flatMap((signal) => extractSeedTerms(signal));
-  const demandExpressions = deduped.flatMap((signal) => extractDemandExpressions(signal));
+  const modelRadarBase = buildModelCapabilities(modelRecords);
+  const modelCombinations = buildModelCombinations(modelRadarBase.capabilities);
+  const modelDemandExpressions = [...modelMappingsToDemandExpressions(modelRadarBase.mappings, modelRecords), ...modelCombinationsToDemandExpressions(modelCombinations, modelRecords)];
+  const demandExpressions = [...deduped.flatMap((signal) => extractDemandExpressions(signal)), ...modelDemandExpressions];
   const clusters = clusterSeedTerms(seedTerms, deduped, attemptedAt);
   const sourceRoles = buildSourceRoles(config.sources);
   const candidates = buildCandidateQueue(deduped, { now: attemptedAt, region: config.googleTrends.region, feedback: await readCandidateFeedback(workspaceRoot), seedTerms, clusters, demandExpressions, previousExpressions, sourceRoles });
   const reportCandidates = attachTrendVerifications(candidates, await store.readProjection<TrendVerification[]>("trend-verifications") ?? []);
-  const discoverySummary = buildDiscoverySummary(options.date, deduped, sourceHealth, reportCandidates, demandExpressions, detailEnrichment.results);
+  const discoverySummary = buildDiscoverySummary(options.date, deduped, sourceHealth, reportCandidates, demandExpressions, detailEnrichment.results, modelRecords, modelRadarBase.capabilities, modelRadarBase.mappings, modelCombinations);
   await store.writeDiscoverySummary(discoverySummary);
   const appendable = deduped.filter((candidate) => !existingRawSignals.some((existing) => dedupeRawSignals([existing, candidate]).length === 1));
   const coverageAvailable = sourceHealth.length > 0 && sourceHealth.every((item) => item.status === "available");
@@ -173,16 +184,23 @@ async function runRadarInternal(options: RadarRunOptions): Promise<RadarRunResul
   await store.writeProjection("seed-terms", seedTerms);
   await store.writeProjection("demand-expressions", demandExpressions);
   await store.writeProjection("expression-clusters", clusters);
+  await store.writeProjection("model-inventory", modelRecords);
+  await store.writeProjection("capabilities", modelRadarBase.capabilities);
+  await store.writeProjection("keyword-model-mapping", modelRadarBase.mappings);
+  await store.writeProjection("model-combinations", modelCombinations);
   await store.writeProjection("evidence", evidence);
   await store.writeProjection("opportunities", opportunities);
   const historyById = new Map(previousOpportunities.map((item) => [item.id, item]));
   for (const opportunity of opportunities) historyById.set(opportunity.id, opportunity);
   await store.writeHistory([...historyById.values()]);
   await store.writeHistoryExpressions(expressions);
-  const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: deduped, expressions, evidence, opportunities });
+  const baseSummary = summarizeRun({ date: options.date, sourcesAttempted: sourceNames, sourceHealth, signals: deduped, expressions, evidence, opportunities,
+    modelInventoryCount: modelRecords.length, capabilityCount: modelRadarBase.capabilities.length, modelKeywordCount: modelRadarBase.mappings.length, modelCombinationCount: modelCombinations.length,
+    modelFormalDemandCount: reportCandidates.formal.filter((candidate) => candidate.sourceType === "model-catalog").length, modelWatchDemandCount: reportCandidates.backup.filter((candidate) => candidate.sourceType === "model-catalog").length,
+  });
   const reportPath = path.join(store.runDirectory, "report.md");
-  const xWebScan = await readXWebScan(workspaceRoot, options.date);
-  const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities, candidates: reportCandidates, discoverySummary, sourceRoles, ...(xWebScan ? { xWebScan } : {}) });
+  const xWebScan = sourceNames.includes("manual") ? await readXWebScan(workspaceRoot, options.date) : undefined;
+  const report = renderMarkdownReport({ summary: { ...baseSummary, reportPath }, sourceHealth, signals: rawSignals, expressions, evidence, opportunities, candidates: reportCandidates, discoverySummary, sourceRoles, ...(xWebScan ? { xWebScan } : {}), ...(sourceNames.includes("model-catalog") || modelRecords.length > 0 ? { modelRadar: { models: modelRecords, capabilities: modelRadarBase.capabilities, mappings: modelRadarBase.mappings, combinations: modelCombinations } } : {}) });
   await store.writeProjection("run-summary", { ...baseSummary, reportPath });
   await mkdir(store.runDirectory, { recursive: true });
   await writeFile(reportPath, report, "utf8");
@@ -205,7 +223,7 @@ function attachTrendVerifications(queue: ReturnType<typeof buildCandidateQueue>,
 }
 
 function defaultSourceNames(config: Awaited<ReturnType<typeof loadConfig>>, hasDateManualInput = false): string[] {
-  if (hasDateManualInput && config.sources.manual) return [...new Set([...config.sources.required, "manual"])] as string[];
+  if (hasDateManualInput && config.sources.manual) return [...new Set([...config.sources.required, ...(config.sources.bestEffort.includes("model-catalog") ? ["model-catalog"] : []), "manual"])] as string[];
   return [...new Set([...config.sources.required, ...config.sources.bestEffort, ...config.sources.validation])];
 }
 
@@ -247,18 +265,28 @@ function buildSourceRoles(sources: { required: SourceType[]; bestEffort: SourceT
 
 function stableAdapter(sourceType: StableSourceType, supplied: SourceAdapter | undefined, transports: InjectedSourceTransports, config: Awaited<ReturnType<typeof loadConfig>>): SourceAdapter | undefined {
   if (supplied) return supplied;
-  if (sourceType === "producthunt" && (transports.producthunt || process.env.PRODUCT_HUNT_API_TOKEN)) return createProductHuntAdapter(transports.producthunt ?? createProductHuntGraphqlTransport(), { limit: config.producthunt.limit });
+  if (sourceType === "producthunt" && (transports.producthunt || (!isTestRuntime() && process.env.PRODUCT_HUNT_API_TOKEN))) return createProductHuntAdapter(transports.producthunt ?? createProductHuntGraphqlTransport(), { limit: config.producthunt.limit });
   if (sourceType === "github" && (transports.github || publicHttpEnabled())) return createGitHubAdapter(transports.github ?? createHttpTransport({ bearerEnv: "RADAR_GITHUB_TOKEN" }), { queries: config.github.queries, limit: config.github.limit });
+  if (sourceType === "model-catalog" && config.modelCatalog.enabled) {
+    const configured = transports.modelCatalog ?? {};
+    const huggingface = configured.huggingface ?? transports.huggingface;
+    const falAi = configured.falAi ?? transports.falAi;
+    if (huggingface || falAi || publicHttpEnabled()) return createModelCatalogAdapter({ ...(huggingface ? { huggingface } : publicHttpEnabled() ? { huggingface: createHttpTransport() } : {}), ...(falAi ? { falAi } : publicHttpEnabled() ? { falAi: createHttpTransport() } : {}) }, config.modelCatalog);
+  }
   if (sourceType === "scys-mcp" && transports["scys-mcp"]) return createScysMcpAdapter(transports["scys-mcp"], { queries: config.scys.queries });
   const xTransport = transports["x-timeline"] ?? transports.xTimeline;
-  if (sourceType === "x-timeline" && (xTransport || process.env.X_BEARER_TOKEN)) return createXTimelineAdapter(xTransport ?? createXApiTransport(), { handles: config.xTimeline.handles });
+  if (sourceType === "x-timeline" && (xTransport || (!isTestRuntime() && process.env.X_BEARER_TOKEN))) return createXTimelineAdapter(xTransport ?? createXApiTransport(), { handles: config.xTimeline.handles });
   const redditTransport = transports["reddit-feed"] ?? transports.redditFeed;
   if (sourceType === "reddit-feed" && (redditTransport || publicHttpEnabled())) return createRedditFeedAdapter(redditTransport ?? createRedditFallbackTransport({ tokenEnv: "REDDIT_ACCESS_TOKEN" }), { communities: config.redditFeed.communities, ...(redditTransport ? {} : { baseUrl: "https://www.reddit.com" }) });
   return undefined;
 }
 
 function publicHttpEnabled(): boolean {
-  return process.env.RADAR_ENABLE_PUBLIC_HTTP === "1" && process.env.NODE_ENV !== "test" && !process.env.VITEST;
+  return process.env.RADAR_ENABLE_PUBLIC_HTTP === "1" && !isTestRuntime();
+}
+
+function isTestRuntime(): boolean {
+  return process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
 }
 
 function healthForSignals(signals: RawSignal[], attemptedAt: string): SourceHealth[] {
@@ -270,7 +298,7 @@ function healthForSignals(signals: RawSignal[], attemptedAt: string): SourceHeal
   });
 }
 
-function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth: SourceHealth[], candidates: ReturnType<typeof buildCandidateQueue>, demandExpressions: import("./types.js").DemandExpression[] = [], detailResults: DetailResult[] = []): DiscoverySummary {
+function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth: SourceHealth[], candidates: ReturnType<typeof buildCandidateQueue>, demandExpressions: import("./types.js").DemandExpression[] = [], detailResults: DetailResult[] = [], modelRecords: ModelRecord[] = [], capabilities: ModelCapability[] = [], mappings: import("./types.js").KeywordModelMapping[] = [], combinations: ModelCombination[] = []): DiscoverySummary {
   const runAt = Date.parse(`${date}T00:00:00.000Z`);
   const formalBySignal = countCandidatesBySignal(candidates.formal);
   const backupBySignal = countCandidatesBySignal(candidates.backup);
@@ -279,6 +307,12 @@ function buildDiscoverySummary(date: string, signals: RawSignal[], sourceHealth:
     totalRawSignals: signals.length,
     verificationPoolCount: candidates.formal.length,
     entityCount: signals.length,
+    modelInventoryCount: modelRecords.length,
+    capabilityCount: capabilities.length,
+    modelKeywordCount: mappings.length,
+    modelCombinationCount: combinations.length,
+    modelFormalDemandCount: candidates.formal.filter((candidate) => candidate.sourceType === "model-catalog").length,
+    modelWatchDemandCount: candidates.backup.filter((candidate) => candidate.sourceType === "model-catalog").length,
     detailAttempted: detailResults.length,
     detailSucceeded: detailResults.filter((detail) => detail.status === "success").length,
     detailEmpty: detailResults.filter((detail) => detail.status === "empty").length,

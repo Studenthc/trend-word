@@ -23,6 +23,26 @@ function signal(id: string, changes: Partial<RawSignal> = {}): RawSignal {
 }
 
 describe("candidate queue", () => {
+  it("keeps model-catalog capability evidence in observation while direct evidence stays formal", () => {
+    const modelSignal = signal("model-signal", {
+      sourceType: "model-catalog", sourceName: "Hugging Face", sourceUrl: "https://huggingface.co/acme/image-to-video",
+      title: "acme/image-to-video", body: "image-to-video", tags: ["model-catalog:huggingface"], signalKind: "entity",
+    });
+    const directSignal = signal("direct-signal", { sourceType: "manual", sourceName: "X", sourceUrl: "https://x.com/example/status/1", body: "Users need image to video." });
+    const base = { text: "image to video", normalizedText: "image to video", type: "task" as const, sourceEntityId: "entity-image-to-video", evidenceLocation: "body" as const, evidenceGrade: "inferred" as const, qualityState: "review" as const, qualityScore: 55, origin: "capability_derived" as const, sourceText: "image-to-video", transformation: "derived", evidencePrecision: "semantic" as const, firstSeenAt: "2026-09-03T00:00:00.000Z" };
+    const result = buildCandidateQueue([modelSignal, directSignal], { now: "2026-09-03T00:00:00.000Z", demandExpressions: [
+      { ...base, id: "model-demand", rawSignalId: "model-signal", sourceType: "model-catalog", sourceUrl: modelSignal.sourceUrl, evidenceQuote: "模型目录能力：image-to-video" },
+      { ...base, id: "direct-demand", rawSignalId: "direct-signal", sourceType: "manual", sourceUrl: directSignal.sourceUrl, evidenceGrade: "direct", qualityState: "verified", qualityScore: 90, origin: "user_evidence", sourceText: "Users need image to video", transformation: "保留原文需求表达", evidencePrecision: "exact", evidenceQuote: "Users need image to video" },
+    ] });
+
+    expect(result.formal.map((item) => item.term)).toEqual(["image to video"]);
+    expect(result.formal[0]?.evidenceOrigin).toBe("user_evidence");
+    expect(result.backup).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived", qualificationReason: expect.stringContaining("外部需求证据") })]));
+
+    const entityOnly = buildCandidateQueue([signal("model-entity-only", { sourceType: "model-catalog", sourceName: "Hugging Face", sourceUrl: "https://huggingface.co/acme/opaque-v2", title: "acme/opaque-v2", body: "safetensors, license:mit, region:us", signalKind: "entity" })], { now: "2026-09-03T00:00:00.000Z" });
+    expect(entityOnly.formal).toEqual([]);
+    expect(entityOnly.backup).toEqual([]);
+  });
   it("ranks a verified demand expression ahead of its product entity with a distinct ID", () => {
     const demand: DemandExpression = {
       id: "demand-ph-1-0", text: "replace Zapier", normalizedText: "replace zapier", type: "alternative", rawSignalId: "ph-1", sourceEntityId: "entity-producthunt-ph-1", sourceType: "producthunt", sourceUrl: "https://producthunt.com/posts/flowpilot", evidenceQuote: "Teams use FlowPilot to replace Zapier.", evidenceLocation: "body", evidenceGrade: "direct", qualityState: "verified", qualityScore: 90, origin: "user_evidence", sourceText: "Teams use FlowPilot to replace Zapier.", transformation: "保留原文需求表达", firstSeenAt: "2026-08-25T00:00:00.000Z",

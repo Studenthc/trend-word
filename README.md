@@ -4,10 +4,10 @@
 
 每日 workflow：
 
-1. 先从 Product Hunt、GitHub，以及配置好的 X/Reddit/人工输入发现早期表达；SCYS 用 `AI`、`出海`、`风向标` 等词做中文需求与变现验证。credentials 只留在 runtime transport，不写入 RawSignal、报告或 fixtures。
+1. 先从 Product Hunt、GitHub、Hugging Face、fal.ai，以及配置好的 X/Reddit/人工输入发现早期表达；SCYS 用 `AI`、`出海`、`风向标` 等词做中文需求与变现验证。credentials 只留在 runtime transport，不写入 RawSignal、报告或 fixtures。
 2. 从普通用户句子、问题、产品/模型名称中抽取表达，按过去 7 天首次出现、重复提及和跨来源出现排序；SCYS 单独出现的产品名和功能名不会冒充新词。
 3. 先看不超过 10 个 `今天先查` 正式候选，再看 `观察候选` 和来源状态；`blocked`、`partial`、`unverified` 不等于没有新词。
-4. 对候选手工打开 Google Trends，重点记录过去 7 天走势、地区、value/delta 和 rising queries。
+4. 对候选手工打开 Google Trends，重点记录过去 7 天走势、地区、value/delta 和 rising queries。模型目录只提供能力和组合假设，不能单独证明用户需求；只有外部需求证据才能把同类表达推进正式池。
 5. 可用 `verify` 保存人工结果，再记录决定：`keep`、`skip` 或 `false_positive`。
 
 运行方式：
@@ -19,9 +19,9 @@ pnpm radar -- --date 2026-08-24 --workspace /tmp/radar-configured
 pnpm radar -- verify --date 2026-08-26 --candidate candidate-一人公司自动化 --result rising --region CN --note "过去 7 天明显上升" --workspace /tmp/radar-configured
 ```
 
-报告和审计数据写入 `data/runs/YYYY-MM-DD/`。其中 `raw-signals.jsonl`、`seed-terms.json`、`expression-clusters.json`、`evidence.json` 和 `discovery-summary.json` 是发现池与来源审计数据，`candidates.json` 是今日验证池。Markdown 报告先展示用户表达和原文证据，再给 Trends 验证链接；不会倾倒完整正文。
+报告和审计数据写入 `data/runs/YYYY-MM-DD/`。其中 `raw-signals.jsonl`、`seed-terms.json`、`expression-clusters.json`、`evidence.json` 和 `discovery-summary.json` 是发现池与来源审计数据，`candidates.json` 是今日验证池；模型源另写入 `model-inventory.json`、`capabilities.json`、`keyword-model-mapping.json` 和 `model-combinations.json`。Markdown 报告先展示用户表达和原文证据，再给 Trends 验证链接；不会倾倒完整正文。
 
-Google Trends 是 `manual-or-optional` verification boundary：当前不调用 undocumented free API；没有 provider 时显示 `Google Trends 未验证`，不会伪造 zero/declining，也不会删除候选。发现源负责找刚出现的表达，SCYS 只负责中文需求、玩法和商业场景验证；SCYS 缺失是覆盖警告，不是“没有新词”。设置 `RADAR_ENABLE_PUBLIC_HTTP=1` 后，GitHub 会使用公开 API，Reddit 会读取配置的 `Entrepreneur`、`SaaS`、`artificial` 社区 feed；设置 `REDDIT_ACCESS_TOKEN` 后 Reddit 改走 OAuth API；设置 `X_BEARER_TOKEN` 后会读取配置的 OpenAI、AnthropicAI、karpathy、sama、levelsio 时间线；设置 `PRODUCT_HUNT_API_TOKEN` 后会使用官方 GraphQL API。可选的 `RADAR_GITHUB_TOKEN` 只用于请求头，不会写入任何报告或原始信号。GitHub 只负责近期工具/产品实体发现，不能把 `owner/repo` 直接当趋势词。没有凭证或 transport 的来源会明确显示 `unverified`，不能伪装成可用或把失败当成空结果。
+Google Trends 是 `manual-or-optional` verification boundary：当前不调用 undocumented free API；没有 provider 时显示 `Google Trends 未验证`，不会伪造 zero/declining，也不会删除候选。发现源负责找刚出现的表达，SCYS 只负责中文需求、玩法和商业场景验证；SCYS 缺失是覆盖警告，不是“没有新词”。设置 `RADAR_ENABLE_PUBLIC_HTTP=1` 后，GitHub 会使用公开 API，Reddit 会读取配置的 `Entrepreneur`、`SaaS`、`artificial` 社区 feed，Hugging Face 会读取官方公开模型 API，fal.ai 会读取白名单的公开 `/explore` HTML；模型目录默认只取近 7 天、每个平台最多 20 条，不下载权重、不使用付费 API、不需要模型平台凭证。设置 `REDDIT_ACCESS_TOKEN` 后 Reddit 改走 OAuth API；设置 `X_BEARER_TOKEN` 后会读取配置的 OpenAI、AnthropicAI、karpathy、sama、levelsio 时间线；设置 `PRODUCT_HUNT_API_TOKEN` 后会使用官方 GraphQL API。可选的 `RADAR_GITHUB_TOKEN` 只用于请求头，不会写入任何报告或原始信号。GitHub 只负责近期工具/产品实体发现，不能把 `owner/repo` 直接当趋势词。没有凭证或 transport 的来源会明确显示 `unverified`，不能伪装成可用或把失败当成空结果。
 
 SCYS 网页 runtime transport 的最小接线方式：宿主 runtime 注入带登录态的 `fetcher` 和 headers，再把返回的 transport 传给 `runRadar({ transports: { "scys-mcp": transport } })`。项目不会读取浏览器 cookie、localStorage 或 token；没有 runtime 注入时保持 `unverified`。
 

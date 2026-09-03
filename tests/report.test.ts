@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { parseCliArgs } from "../src/cli.js";
 import { runRadar } from "../src/index.js";
 import { summarizeRun } from "../src/report/summary.js";
@@ -14,7 +14,8 @@ import { type HttpTransport as GitHubTransport } from "../src/sources/github.js"
 import { type McpTransport } from "../src/sources/scys-mcp.js";
 import type { CandidateQueue } from "../src/domain/candidates.js";
 import { RunStore } from "../src/storage/run-store.js";
-import type { Evidence, Opportunity, RawSignal, SourceHealth } from "../src/types.js";
+import type { Evidence, KeywordModelMapping, ModelCapability, ModelCombination, ModelRecord, Opportunity, RawSignal, SourceHealth } from "../src/types.js";
+import type { ModelRadarReport } from "../src/report/markdown.js";
 
 function signal(id: string, sourceType: RawSignal["sourceType"] = "fixtures", status: RawSignal["evidenceStatus"] = "verified"): RawSignal {
   return {
@@ -37,6 +38,47 @@ function opportunity(id: string, status: Opportunity["status"]): Opportunity {
 }
 
 describe("daily radar report", () => {
+  afterEach(() => {
+    delete process.env.PRODUCT_HUNT_API_TOKEN;
+    delete process.env.RADAR_GITHUB_TOKEN;
+    delete process.env.RADAR_ENABLE_PUBLIC_HTTP;
+    delete process.env.X_BEARER_TOKEN;
+  });
+  it("renders compact model capabilities and combination provenance", () => {
+    const models: ModelRecord[] = [
+      { id: "huggingface:acme/image", platform: "huggingface", modelName: "acme/image", modelUrl: "https://huggingface.co/acme/image", inputTypes: ["image"], outputTypes: ["video"], claimedCapabilities: ["image-to-video"], tags: [], notes: [], sourceSignalId: "signal-image", evidenceStatus: "verified" },
+      { id: "fal-ai:acme/tts", platform: "fal-ai", modelName: "acme/tts", modelUrl: "https://fal.ai/models/acme/tts/text-to-speech", inputTypes: ["text"], outputTypes: ["audio"], claimedCapabilities: ["text-to-speech"], tags: [], notes: [], sourceSignalId: "signal-tts", evidenceStatus: "partial" },
+    ];
+    const capability: ModelCapability = { id: "capability-image-to-video", capability: "image-to-video", modelIds: [models[0]!.id], sourceSignalIds: [models[0]!.sourceSignalId], platforms: ["huggingface"], inputTypes: ["image"], outputTypes: ["video"], sourceQuotes: ["image-to-video"], sourceUrls: [models[0]!.modelUrl], evidenceStatus: "verified" };
+    const mapping: KeywordModelMapping = { id: "keyword-model-image-to-video", keyword: "image to video", normalizedKeyword: "image to video", capabilityId: capability.id, modelIds: [models[0]!.id], sourceSignalIds: [models[0]!.sourceSignalId], sourceUrls: [models[0]!.modelUrl], originalText: "image-to-video", transformation: "derived", origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred" };
+    const combination: ModelCombination = { combinationId: "combination-image-to-video-text-to-speech", steps: [{ modelIds: [models[0]!.id], capability: "image-to-video", inputTypes: ["image"], outputTypes: ["video"] }, { modelIds: [models[1]!.id], capability: "text-to-speech", inputTypes: ["text"], outputTypes: ["audio"] }], capabilityChain: ["image-to-video", "text-to-speech"], combinedQuery: "product photo video with voiceover", candidateModels: models.map((model) => model.id), compatibilityReason: "explicit recipe", feasibilityNotes: ["script input"], evidenceStatus: "inferred" };
+    const modelRadar: ModelRadarReport = { models, capabilities: [capability], mappings: [mapping], combinations: [combination] };
+    const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [{ sourceType: "model-catalog", status: "partial", attemptedAt: "2026-09-03T00:00:00.000Z", itemCount: 2, failureReasons: [], coverageNotes: [] }], signals: [], expressions: [], evidence: [], opportunities: [], modelRadar });
+
+    expect(report).toContain("## 模型能力雷达");
+    expect(report).toContain("模型目录：Hugging Face 1 条 · fal.ai 1 条；归一化能力 1 条；需求表达 1 条；组合假设 1 条");
+    expect(report).toContain("产品能力推导：image to video · 待外部需求证据");
+    expect(report).toContain("组合假设：product photo video with voiceover · image-to-video -> text-to-speech");
+    expect(report).toContain("https://huggingface.co/acme/image");
+    expect(report).not.toContain("用户原话：image-to-video");
+    expect(report).not.toContain("这是一个很长的模型描述");
+  });
+
+  it("names an unavailable model platform instead of implying zero demand", () => {
+    const model: ModelRecord = { id: "huggingface:acme/image", platform: "huggingface", modelName: "acme/image", modelUrl: "https://huggingface.co/acme/image", inputTypes: ["image"], outputTypes: ["video"], claimedCapabilities: ["image-to-video"], tags: [], notes: [], sourceSignalId: "signal-image", evidenceStatus: "verified" };
+    const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [{ sourceType: "model-catalog", status: "unverified", attemptedAt: "2026-09-03T00:00:00.000Z", itemCount: 1, failureReasons: [], coverageNotes: ["huggingface: available (1 models)", "fal-ai: unverified (0 models)"] }], signals: [], expressions: [], evidence: [], opportunities: [], modelRadar: { models: [model], capabilities: [], mappings: [], combinations: [] } });
+
+    expect(report).toContain("fal.ai: unverified");
+    expect(report).not.toContain("fal.ai 0 条");
+  });
+
+  it("does not render unconfigured model platforms as zero results", () => {
+    const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [{ sourceType: "model-catalog", status: "unverified", attemptedAt: "2026-09-03T00:00:00.000Z", itemCount: 0, failureReasons: ["no injected transport configured"], coverageNotes: [] }], signals: [], expressions: [], evidence: [], opportunities: [], modelRadar: { models: [], capabilities: [], mappings: [], combinations: [] } });
+    expect(report).toContain("Hugging Face 未核验");
+    expect(report).toContain("fal.ai 未核验");
+    expect(report).not.toContain("Hugging Face 0 条");
+    expect(report).not.toContain("fal.ai 0 条");
+  });
   it("renders only the bounded Google Trends verification pool", () => {
     const candidates: CandidateQueue = {
       formal: [{ candidateId: "candidate-ai", term: "AI短剧带货", sourceType: "scys-mcp", context: "正文提到“AI短剧带货”", reason: "正文出现了具体表达", lane: "formal", sourceSignalId: "one", sourceUrl: "https://example.com/one", authorName: "作者", publishedAt: "2026-08-25T00:00:00.000Z", trendsUrl: "https://trends.google.com/trends/explore?date=now%207-d&q=AI", score: 90, missingFields: [], evidenceOrigin: "user_evidence" }, { candidateId: "candidate-demand-capability-derived", term: "AI photo generator", sourceType: "producthunt", context: "A product can generate AI photos", reason: "产品能力可转成搜索词", lane: "formal", sourceSignalId: "two", sourceUrl: "https://example.com/two", trendsUrl: "https://trends.google.com/trends/explore?q=AI", score: 80, missingFields: ["用户原话/替代诉求待确认"], evidenceOrigin: "capability_derived" }],
@@ -139,7 +181,7 @@ describe("daily radar report", () => {
       await writeFile(path.join(runDirectory, "x-web-scan.json"), JSON.stringify({ scannedCount: 1, acceptedCount: 1, rejectedCount: 0, rejectionReasons: {} }));
       const emptyResponse = { status: 200, headers: new Headers(), text: async () => JSON.stringify({ posts: [], items: [] }) };
       const result = await runRadar({ date: "2026-09-03", workspaceRoot, transports: { producthunt: async () => emptyResponse, github: async () => emptyResponse } });
-      expect(result.summary.sourcesAttempted).toEqual(["producthunt", "github", "manual"]);
+      expect(result.summary.sourcesAttempted).toEqual(["producthunt", "github", "model-catalog", "manual"]);
       expect(result.report).toContain("manual（发现）: available");
       expect(result.report).toContain("扫描 1 | 入选 1 | 过滤 0");
     } finally {
@@ -229,10 +271,22 @@ describe("daily radar report", () => {
   it("attempts every configured discovery and validation source by default", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-default-sources-"));
     const result = await runRadar({ date: "2026-08-26", workspaceRoot });
-    expect(result.summary.sourcesAttempted).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "scys-mcp"]);
-    expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "scys-mcp"]);
+    expect(result.summary.sourcesAttempted).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "model-catalog", "scys-mcp"]);
+    expect(result.summary.sourceHealth?.map((item) => item.sourceType)).toEqual(["producthunt", "github", "x-timeline", "reddit-feed", "model-catalog", "scys-mcp"]);
     expect(result.report).toContain("scys-mcp（验证）");
     expect(result.report).toContain("producthunt（发现）");
+  });
+
+  it("does not render a stale X scan when X is outside the requested sources", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "radar-stale-x-scan-"));
+    const runDirectory = path.join(workspaceRoot, "data", "runs", "2026-09-03");
+    await mkdir(runDirectory, { recursive: true });
+    await writeFile(path.join(runDirectory, "x-web-scan.json"), JSON.stringify({ scannedCount: 12, acceptedCount: 3, rejectedCount: 9 }));
+
+    const result = await runRadar({ date: "2026-09-03", sourceNames: ["model-catalog"], workspaceRoot });
+
+    expect(result.report).not.toContain("## X 手工扫描");
+    expect(result.report).not.toContain("扫描 12 | 入选 3 | 过滤 9");
   });
 
   it("parses supported CLI flags and rejects unknown flags", () => {

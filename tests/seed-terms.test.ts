@@ -11,6 +11,10 @@ function signal(changes: Partial<RawSignal> = {}): RawSignal {
 }
 
 describe("extractSeedTerms", () => {
+  it("does not treat model catalog descriptions or HTML entities as demand seeds", () => {
+    const result = extractSeedTerms(signal({ sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/image-to-video", body: "A model with Google&#x27;s image-to-video capability." }));
+    expect(result).toEqual([]);
+  });
   it("extracts quoted concepts, concrete search phrases, and problems", () => {
     const terms = extractSeedTerms(signal());
     expect(terms.map((item) => item.text)).toEqual(expect.arrayContaining(["wan animate", "演唱会调色修图工具", "保存失败", "尺寸不对"]));

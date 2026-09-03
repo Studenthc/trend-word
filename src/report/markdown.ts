@@ -1,4 +1,4 @@
-import type { DiscoverySummary, Evidence, Expression, Opportunity, RawSignal, RunSummary, SourceHealth, SourceRole, SourceType } from "../types.js";
+import type { DiscoverySummary, Evidence, Expression, KeywordModelMapping, ModelCapability, ModelCombination, ModelRecord, Opportunity, RawSignal, RunSummary, SourceHealth, SourceRole, SourceType } from "../types.js";
 import type { CandidateQueue } from "../domain/candidates.js";
 
 export type MarkdownReportInput = {
@@ -12,6 +12,7 @@ export type MarkdownReportInput = {
   discoverySummary?: DiscoverySummary;
   sourceRoles?: Partial<Record<SourceType, SourceRole>>;
   xWebScan?: XWebScanSummary;
+  modelRadar?: ModelRadarReport;
 };
 
 export type XWebScanSummary = {
@@ -19,6 +20,13 @@ export type XWebScanSummary = {
   acceptedCount: number;
   rejectedCount: number;
   rejectionReasons?: Record<string, number>;
+};
+
+export type ModelRadarReport = {
+  models: ModelRecord[];
+  capabilities: ModelCapability[];
+  mappings: KeywordModelMapping[];
+  combinations: ModelCombination[];
 };
 
 const DAILY_REPORT_FORMAL_LIMIT = 10;
@@ -30,6 +38,7 @@ export function renderMarkdownReport(input: MarkdownReportInput): string {
 
   lines.push("", "## 来源状态", "");
   for (const source of input.sourceHealth) lines.push(...sourceStatusLines(source, input.discoverySummary, input.sourceRoles));
+  if (input.modelRadar) lines.push("", ...modelRadarLines(input.modelRadar, input.sourceHealth));
   if (input.xWebScan) {
     lines.push("", "## X 手工扫描", "", `- 扫描 ${input.xWebScan.scannedCount} | 入选 ${input.xWebScan.acceptedCount} | 过滤 ${input.xWebScan.rejectedCount}`);
   }
@@ -77,7 +86,36 @@ function dataLocationLines(summary: RunSummary): string[] {
     `- 来源质量：${runDirectory}/discovery-summary.json`,
     `- 今日验证池：${runDirectory}/candidates.json`,
     `- 完整证据：${runDirectory}/evidence.json`,
+    `- 模型库存：${runDirectory}/model-inventory.json`,
+    `- 能力归一化：${runDirectory}/capabilities.json`,
+    `- 需求词映射：${runDirectory}/keyword-model-mapping.json`,
+    `- 组合假设：${runDirectory}/model-combinations.json`,
   ];
+}
+
+function modelRadarLines(modelRadar: ModelRadarReport, sourceHealth: SourceHealth[]): string[] {
+  const counts = new Map<ModelRecord["platform"], number>();
+  for (const model of modelRadar.models) counts.set(model.platform, (counts.get(model.platform) ?? 0) + 1);
+  const modelHealth = sourceHealth.find((source) => source.sourceType === "model-catalog");
+  const coverageNotes = modelHealth?.coverageNotes ?? [];
+  const unknownWhenUnavailable = modelHealth !== undefined && modelHealth.status !== "available";
+  const huggingFaceCount = unknownWhenUnavailable && (counts.get("huggingface") ?? 0) === 0 ? "未核验" : `${counts.get("huggingface") ?? 0} 条`;
+  const falUnavailable = unknownWhenUnavailable && (counts.get("fal-ai") ?? 0) === 0;
+  const falCount = falUnavailable ? "未核验" : `${counts.get("fal-ai") ?? 0} 条`;
+  const lines = ["## 模型能力雷达", "", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；需求表达 ${modelRadar.mappings.length} 条；组合假设 ${modelRadar.combinations.length} 条`];
+  for (const note of coverageNotes) {
+    if (/(?:huggingface|fal-ai):\s+(?:available|partial|blocked|empty|unverified)/iu.test(note)) lines.push(`- 覆盖：${note.replace(/^fal-ai:/u, "fal.ai:")}`);
+  }
+  for (const mapping of modelRadar.mappings.slice(0, 5)) {
+    const url = mapping.sourceUrls[0];
+    lines.push(`- 产品能力推导：${mapping.keyword} · 待外部需求证据${url ? ` · [模型原文](${url})` : ""}`);
+  }
+  const modelById = new Map(modelRadar.models.map((model) => [model.id, model]));
+  for (const combination of modelRadar.combinations.slice(0, 3)) {
+    const model = combination.candidateModels.map((id) => modelById.get(id) ?? modelRadar.models.find((item) => item.id.endsWith(`:${id}`))).find((item): item is ModelRecord => Boolean(item));
+    lines.push(`- 组合假设：${combination.combinedQuery} · ${combination.capabilityChain.join(" -> ")} · 待外部需求证据${model ? ` · [模型原文](${model.modelUrl})` : ""}`);
+  }
+  return lines;
 }
 
 function candidateSection(queue: CandidateQueue): string[] {
