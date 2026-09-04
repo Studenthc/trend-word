@@ -104,15 +104,16 @@ function modelRadarLines(modelRadar: ModelRadarReport, sourceHealth: SourceHealt
   const falUnavailable = unknownWhenUnavailable && (counts.get("fal-ai") ?? 0) === 0;
   const falCount = falUnavailable ? "未核验" : `${counts.get("fal-ai") ?? 0} 条`;
   const actionableMappings = modelRadar.mappings.filter((mapping) => !isBaselineModelQuery(mapping.normalizedKeyword)).sort((left, right) => modelQueryPriority(right.keyword) - modelQueryPriority(left.keyword) || left.keyword.localeCompare(right.keyword, "en-US"));
+  const compactMappings = uniqueMappingsByModelPage(actionableMappings);
   const baselineMappingCount = modelRadar.mappings.length - actionableMappings.length;
-  const lines = ["## 模型能力雷达", "", "- 解释：以下是模型能力线索，不是用户原话或需求证明；主词和可对照搜索词仅用于人工查 Google Trends。", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；待查能力 ${actionableMappings.length} 条${baselineMappingCount > 0 ? `；常规能力略过 ${baselineMappingCount} 条` : ""}；组合假设 ${modelRadar.combinations.length} 条`];
+  const lines = ["## 模型能力雷达", "", "- 解释：以下是模型能力线索，不是用户原话或需求证明；主词和可对照搜索词仅用于人工查 Google Trends。", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；可查能力线索 ${compactMappings.length} 条${baselineMappingCount > 0 ? `；常规能力略过 ${baselineMappingCount} 条` : ""}；组合假设 ${modelRadar.combinations.length} 条`];
   for (const note of coverageNotes) {
     if (/(?:huggingface|fal-ai):\s+(?:available|partial|blocked|empty|unverified)/iu.test(note)) lines.push(`- 覆盖：${note.replace(/^fal-ai:/u, "fal.ai:")}`);
   }
-  for (const mapping of actionableMappings.slice(0, 5)) {
+  for (const mapping of compactMappings.slice(0, 5)) {
     const url = mapping.sourceUrls[0];
     const capability = mapping.capabilityId.replace(/^capability-/u, "");
-    lines.push(`- 产品能力推导：${mapping.keyword} · ${modelCapabilitySummary(capability)} · 待 Google Trends 验证${url ? ` · [模型原文](${url})` : ""}`);
+    lines.push(`- 能力线索：${mapping.keyword} · ${modelCapabilitySummary(capability)} · 待 Google Trends 验证${url ? ` · [模型原文](${url})` : ""}`);
   }
   const modelById = new Map(modelRadar.models.map((model) => [model.id, model]));
   for (const combination of modelRadar.combinations.slice(0, 3)) {
@@ -120,6 +121,16 @@ function modelRadarLines(modelRadar: ModelRadarReport, sourceHealth: SourceHealt
     lines.push(`- 组合假设：${combination.combinedQuery} · ${combination.capabilityChain.join(" -> ")} · 待 Google Trends 验证${model ? ` · [模型原文](${model.modelUrl})` : ""}`);
   }
   return lines;
+}
+
+function uniqueMappingsByModelPage(mappings: KeywordModelMapping[]): KeywordModelMapping[] {
+  const seen = new Set<string>();
+  return mappings.filter((mapping) => {
+    const key = mapping.sourceUrls[0] ?? mapping.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function candidateSection(queue: CandidateQueue): string[] {
@@ -183,6 +194,13 @@ function trendVerificationLine(candidate: CandidateQueue["formal"][number]): str
 
 function backupCandidateLines(candidate: CandidateQueue["backup"][number]): string[] {
   const missingFields = displayMissingFields(candidate);
+  if (candidate.sourceType === "model-catalog" && candidate.evidenceOrigin === "capability_derived") {
+    const variants = candidate.queryVariants?.filter((variant) => variant.toLocaleLowerCase("en-US") !== candidate.term.toLocaleLowerCase("en-US")) ?? [];
+    const variantLine = variants.length > 0 ? ` · 可对照搜索：${variants.join("、")}` : "";
+    const dateLine = candidate.publishedAt ? ` · 时间：${candidate.publishedAt.slice(0, 10)}` : " · 时间：未核验";
+    const summary = candidate.capabilitySummary ?? modelCapabilitySummaryFromCandidate(candidate);
+    return [`- ${candidate.term} · ${candidate.qualificationReason ?? candidate.reason ?? "模型能力线索"} · 能做什么：${summary}${variantLine} · 能力依据：${excerpt(candidate.evidenceQuote ?? candidate.context, 100)}${dateLine} · 尚缺：${missingFields.join("、")} · [原文](${candidate.sourceUrl}) · [查 Google Trends 7d](${candidate.trendsUrl})`];
+  }
   if (candidate.evidencePrecision === "inferred") {
     return [`- ${candidate.term} · 推测搜索词，仅观察，不进入今日验证池 · 证据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · 尚缺：${missingFields.join("、")} · [原文](${candidate.sourceUrl}) · [查 Google Trends 7d](${candidate.trendsUrl})`];
   }

@@ -18,9 +18,9 @@ describe("runRadar", () => {
     expect(JSON.parse(await readFile(path.join(runDirectory, "capabilities.json"), "utf8"))).toHaveLength(1);
     expect(JSON.parse(await readFile(path.join(runDirectory, "keyword-model-mapping.json"), "utf8"))).toHaveLength(1);
     expect(JSON.parse(await readFile(path.join(runDirectory, "model-combinations.json"), "utf8"))).toEqual([]);
-    expect(result.summary).toMatchObject({ modelInventoryCount: 1, capabilityCount: 1, modelKeywordCount: 1, modelWatchDemandCount: 0, modelFormalDemandCount: 1 });
-    expect(result.candidates?.formal).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived" })]));
-    expect(result.candidates?.backup.some((item) => item.sourceType === "model-catalog")).toBe(false);
+    expect(result.summary).toMatchObject({ modelInventoryCount: 1, capabilityCount: 1, modelKeywordCount: 1, modelWatchDemandCount: 1, modelFormalDemandCount: 0 });
+    expect(result.candidates?.formal.some((item) => item.sourceType === "model-catalog")).toBe(false);
+    expect(result.candidates?.backup).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived" })]));
     expect(result.report).toContain("模型能力雷达");
   });
   it("returns a run summary and report projection for fixture input", async () => {

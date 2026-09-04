@@ -108,8 +108,15 @@ export function buildCandidateQueue(signals: RawSignal[], options: CandidateQueu
   }
 
   const sort = (items: RadarCandidate[]) => items.sort((a, b) => b.score - a.score || a.term.localeCompare(b.term, "zh-CN"));
-  const formalItems = sort([...formal.values()]);
-  const backupItems = sort([...backup.values()]);
+  const modelSources = new Set<string>();
+  const dedupeModelPage = (items: RadarCandidate[]) => sort(items).filter((item) => {
+    if (item.sourceType !== "model-catalog" || item.evidenceOrigin !== "capability_derived") return true;
+    if (modelSources.has(item.sourceUrl)) return false;
+    modelSources.add(item.sourceUrl);
+    return true;
+  });
+  const formalItems = dedupeModelPage([...formal.values()]);
+  const backupItems = dedupeModelPage([...backup.values()]);
   const maxFormal = options.maxFormal ?? 10;
   const maxBackup = options.maxBackup ?? 10;
   return {
@@ -189,19 +196,19 @@ function candidateForDemand(signal: RawSignal, demand: DemandExpression, now: nu
   const broadCapability = demand.origin === "capability_derived" && !modelCatalogOnly && (broadCapabilityPattern.test(normalizedDemandText) || normalizedDemandText.split(/\s+/u).length > 5);
   const trendsTerm = modelCatalogOnly ? [demand.text, ...(demand.queryVariants ?? [])].filter((term, index, terms) => terms.findIndex((item) => normalizeExpression(item).normalized === normalizeExpression(term).normalized) === index).join(", ") : demand.text;
   const score = 140 + demand.qualityScore + recent + (modelCatalogOnly ? modelQueryPriority(normalizedDemandText) : 0) + (decision === "keep" ? 20 : decision === "false_positive" ? -100 : 0);
-  const formal = demand.qualityState !== "rejected" && precision !== "inferred" && !broadCapability && decision !== "false_positive";
+  const formal = demand.qualityState !== "rejected" && precision !== "inferred" && !broadCapability && !modelCatalogOnly && decision !== "false_positive";
   const missingFields = modelCatalogOnly
-    ? formal ? ["Google Trends 7d"] : ["验证真实搜索表达", "Google Trends 7d"]
+    ? ["用户/搜索证据", "Google Trends 7d", ...(signal.publishedAt ? [] : ["可信发布时间"])]
     : formal
     ? ["Google Trends 7d", "SERP/供给", ...(demand.origin === "capability_derived" ? ["用户原话/替代诉求待确认"] : ["用户/商业证据"])]
     : broadCapability ? ["验证真实搜索表达", "Google Trends 7d", "用户原话/替代诉求待确认"] : ["验证真实搜索表达", "Google Trends 7d", "用户/商业证据"];
   return {
     candidateId, term: demand.text, sourceType: signal.sourceType, context: demand.evidenceQuote,
-    reason: modelCatalogOnly ? "模型能力推导，优先验证 Google Trends 过去 7 天增速" : formal ? demand.origin === "capability_derived" ? "产品能力可转成搜索词，优先验证 Google Trends 过去 7 天增速" : demand.transformation === "保留原文需求表达" ? "有原文任务、痛点或替代关系，优先验证 Google Trends 过去 7 天增速" : "社媒观点已归纳为搜索词，优先验证 Google Trends 过去 7 天增速" : broadCapability ? "产品能力词过宽，需先确认用户真实搜索表达" : "需求表达证据待人工确认",
+    reason: modelCatalogOnly ? "模型能力线索，等待用户/搜索证据" : formal ? demand.origin === "capability_derived" ? "产品能力可转成搜索词，优先验证 Google Trends 过去 7 天增速" : demand.transformation === "保留原文需求表达" ? "有原文任务、痛点或替代关系，优先验证 Google Trends 过去 7 天增速" : "社媒观点已归纳为搜索词，优先验证 Google Trends 过去 7 天增速" : broadCapability ? "产品能力词过宽，需先确认用户真实搜索表达" : "需求表达证据待人工确认",
     lane: formal ? "formal" : "backup", sourceSignalId: signal.id, sourceUrl: demand.sourceUrl,
     ...(signal.author?.name ? { authorName: signal.author.name } : {}), ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
     trendsUrl: buildTrendsUrl(trendsTerm, region), score, missingFields,
-    evidenceQuote: demand.evidenceQuote, evidenceKind: demand.type, evidenceOrigin: demand.origin, evidenceTransformation: demand.transformation, evidencePrecision: precision, noveltyScore: score, ...(modelCatalogOnly ? { qualificationReason: "模型能力推导，优先验证 Google Trends 过去 7 天增速", capabilitySummary: modelCapabilitySummaryFromDemand(demand) } : {}), ...(demand.queryVariants ? { queryVariants: demand.queryVariants } : {}), whyNow: modelCatalogOnly ? [] : [demand.origin === "capability_derived" ? "产品能力可转成搜索词" : precision === "exact" ? "正文出现明确需求表达" : precision === "semantic" ? "原文语义可归纳为搜索词" : "社媒出现待验证的新说法"], recentMentions: modelCatalogOnly ? 0 : 1, baselineMentions: 0,
+    evidenceQuote: demand.evidenceQuote, evidenceKind: demand.type, evidenceOrigin: demand.origin, evidenceTransformation: demand.transformation, evidencePrecision: precision, noveltyScore: score, ...(modelCatalogOnly ? { qualificationReason: "模型能力线索，等待用户/搜索证据", capabilitySummary: modelCapabilitySummaryFromDemand(demand) } : {}), ...(demand.queryVariants ? { queryVariants: demand.queryVariants } : {}), whyNow: modelCatalogOnly ? [] : [demand.origin === "capability_derived" ? "产品能力可转成搜索词" : precision === "exact" ? "正文出现明确需求表达" : precision === "semantic" ? "原文语义可归纳为搜索词" : "社媒出现待验证的新说法"], recentMentions: modelCatalogOnly ? 0 : 1, baselineMentions: 0,
   };
 }
 

@@ -57,8 +57,8 @@ describe("daily radar report", () => {
 
     expect(report).toContain("## 模型能力雷达");
     expect(report).toContain("模型能力线索，不是用户原话或需求证明");
-    expect(report).toContain("模型目录：Hugging Face 1 条 · fal.ai 1 条；归一化能力 1 条；待查能力 1 条；组合假设 1 条");
-    expect(report).toContain("产品能力推导：image generator with text · 生成带可读文字的图片 · 待 Google Trends 验证");
+    expect(report).toContain("模型目录：Hugging Face 1 条 · fal.ai 1 条；归一化能力 1 条；可查能力线索 1 条；组合假设 1 条");
+    expect(report).toContain("能力线索：image generator with text · 生成带可读文字的图片 · 待 Google Trends 验证");
     expect(report).toContain("组合假设：product photo video with voiceover · image-to-video -> text-to-speech · 待 Google Trends 验证");
     expect(report).not.toContain("待外部需求证据");
     expect(report).toContain("https://huggingface.co/acme/text-rendering");
@@ -66,13 +66,27 @@ describe("daily radar report", () => {
     expect(report).not.toContain("这是一个很长的模型描述");
   });
 
-  it("renders model-derived candidates as useful capability evidence without social metadata", () => {
+  it("does not repeat capability lines from the same model page", () => {
+    const model: ModelRecord = { id: "fal-ai:acme/edit", platform: "fal-ai", modelName: "acme/edit", modelUrl: "https://fal.ai/models/acme/edit", inputTypes: ["image"], outputTypes: ["image"], claimedCapabilities: [], tags: [], notes: [], sourceSignalId: "signal-edit", evidenceStatus: "partial" };
+    const mappings: KeywordModelMapping[] = [
+      { id: "keyword-model-region", keyword: "AI object replacement", normalizedKeyword: "ai object replacement", capabilityId: "capability-region-specific-image-editing", modelIds: [model.id], sourceSignalIds: [model.sourceSignalId], sourceUrls: [model.modelUrl], originalText: "region precise", transformation: "derived", origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred" },
+      { id: "keyword-model-layer", keyword: "AI image editor with layers", normalizedKeyword: "ai image editor with layers", capabilityId: "capability-layer-aware-image-editing", modelIds: [model.id], sourceSignalIds: [model.sourceSignalId], sourceUrls: [model.modelUrl], originalText: "layer separation", transformation: "derived", origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred" },
+    ];
+    const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], modelRadar: { models: [model], capabilities: [], mappings, combinations: [] } });
+
+    expect(report).toContain("可查能力线索 1 条");
+    expect(report).toContain("能力线索：AI image editor with layers");
+    expect(report).not.toContain("能力线索：AI object replacement");
+  });
+
+  it("renders model-derived observations as useful capability evidence without social metadata", () => {
     const candidates: CandidateQueue = {
-      formal: [{ candidateId: "candidate-model-region", term: "AI object replacement", sourceType: "model-catalog", context: "模型目录能力：region-specific image editing", reason: "模型能力推导，优先验证 Google Trends 过去 7 天增速", lane: "formal", sourceSignalId: "model-region", sourceUrl: "https://fal.ai/models/acme/region-edit", trendsUrl: "https://trends.google.com/trends/explore?q=region", score: 210, missingFields: ["Google Trends 7d"], evidenceOrigin: "capability_derived", evidenceQuote: "能力总结：只替换图片中的指定区域或元素，其他画面保持不变；模型目录依据：region-specific image editing", evidencePrecision: "semantic", capabilitySummary: "只替换图片中的指定区域或元素，其他画面保持不变", queryVariants: ["region specific image editing", "replace object in image"] }],
-      backup: [],
+      formal: [],
+      backup: [{ candidateId: "candidate-model-region", term: "AI object replacement", sourceType: "model-catalog", context: "模型目录能力：region-specific image editing", reason: "模型能力线索，等待用户/搜索证据", lane: "backup", sourceSignalId: "model-region", sourceUrl: "https://fal.ai/models/acme/region-edit", trendsUrl: "https://trends.google.com/trends/explore?q=region", score: 210, missingFields: ["用户/搜索证据", "Google Trends 7d"], evidenceOrigin: "capability_derived", evidenceQuote: "能力总结：只替换图片中的指定区域或元素，其他画面保持不变；模型目录依据：region-specific image editing", evidencePrecision: "semantic", capabilitySummary: "只替换图片中的指定区域或元素，其他画面保持不变", queryVariants: ["region specific image editing", "replace object in image"] }],
     };
     const report = renderMarkdownReport({ summary: { date: "2026-09-03", sourceHealth: [], sourcesAttempted: ["model-catalog"] }, sourceHealth: [], signals: [], expressions: [], evidence: [], opportunities: [], candidates });
 
+    expect(report).toContain("AI object replacement · 模型能力线索，等待用户/搜索证据");
     expect(report).toContain("能做什么：只替换图片中的指定区域或元素，其他画面保持不变");
     expect(report).toContain("可对照搜索：region specific image editing、replace object in image");
     expect(report).toContain("能力依据：能力总结：只替换图片中的指定区域或元素，其他画面保持不变");

@@ -23,7 +23,7 @@ function signal(id: string, changes: Partial<RawSignal> = {}): RawSignal {
 }
 
 describe("candidate queue", () => {
-  it("keeps model-catalog capability evidence in the Trends queue while direct evidence stays formal", () => {
+  it("keeps model-only capability evidence in observation while direct evidence stays formal", () => {
     const modelSignal = signal("model-signal", {
       sourceType: "model-catalog", sourceName: "Hugging Face", sourceUrl: "https://huggingface.co/acme/reference-to-video",
       title: "acme/reference-to-video", body: "reference-to-video", tags: ["model-catalog:huggingface"], signalKind: "entity",
@@ -35,14 +35,13 @@ describe("candidate queue", () => {
       { ...base, id: "direct-demand", rawSignalId: "direct-signal", sourceType: "manual", sourceUrl: directSignal.sourceUrl, evidenceGrade: "direct", qualityState: "verified", qualityScore: 90, origin: "user_evidence", sourceText: "Users need image to video", transformation: "保留原文需求表达", evidencePrecision: "exact", evidenceQuote: "Users need image to video" },
     ] });
 
-    expect(result.formal.map((item) => item.term)).toEqual(["reference to video", "reference to video"]);
+    expect(result.formal.map((item) => item.term)).toEqual(["reference to video"]);
     expect(result.formal).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived", lane: "formal", missingFields: ["Google Trends 7d"] }),
       expect.objectContaining({ sourceType: "manual", evidenceOrigin: "user_evidence" }),
     ]));
-    expect(result.formal.find((item) => item.sourceType === "model-catalog")?.whyNow).toEqual([]);
-    expect(result.formal.find((item) => item.sourceType === "model-catalog")?.recentMentions).toBe(0);
-    expect(result.backup).not.toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog" })]));
+    expect(result.backup).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived", lane: "backup", missingFields: expect.arrayContaining(["用户/搜索证据", "Google Trends 7d"]) }),
+    ]));
 
     const entityOnly = buildCandidateQueue([signal("model-entity-only", { sourceType: "model-catalog", sourceName: "Hugging Face", sourceUrl: "https://huggingface.co/acme/opaque-v2", title: "acme/opaque-v2", body: "safetensors, license:mit, region:us", signalKind: "entity" })], { now: "2026-09-03T00:00:00.000Z" });
     expect(entityOnly.formal).toEqual([]);
@@ -66,11 +65,12 @@ describe("candidate queue", () => {
       demand("specific", specificSignal.id, "region specific image editing"),
     ] });
 
-    expect(result.formal.map((item) => item.term)).toEqual(["region specific image editing"]);
+    expect(result.formal).toEqual([]);
+    expect(result.backup.map((item) => item.term)).toEqual(["region specific image editing"]);
     expect(result.formal.concat(result.backup).map((item) => item.term)).not.toContain("image to video");
   });
 
-  it("keeps distinct capability queries from one model source", () => {
+  it("merges near-duplicate capabilities from one model page into one observation", () => {
     const modelSignal = signal("model-multi-capability", { sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/edit", title: "acme/edit", body: "region-specific image editing with layer separation", signalKind: "entity" });
     const makeDemand = (id: string, text: string): DemandExpression => ({
       id, text, normalizedText: text, type: "task", rawSignalId: modelSignal.id, sourceEntityId: `entity-${id}`, sourceType: "model-catalog", sourceUrl: modelSignal.sourceUrl,
@@ -79,10 +79,11 @@ describe("candidate queue", () => {
 
     const result = buildCandidateQueue([modelSignal], { now: "2026-09-03T00:00:00.000Z", demandExpressions: [makeDemand("region", "region specific image editing"), makeDemand("layer", "layer aware image editing")] });
 
-    expect(result.formal.map((item) => item.term)).toEqual(["layer aware image editing", "region specific image editing"]);
+    expect(result.formal).toEqual([]);
+    expect(result.backup.map((item) => item.term)).toEqual(["layer aware image editing"]);
   });
 
-  it("keeps fixed natural model queries with modifiers in the formal queue", () => {
+  it("keeps fixed natural model queries with modifiers in observation", () => {
     const modelSignal = signal("model-natural-query", { sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/edit", title: "acme/edit", body: "reference images and accurate text", signalKind: "entity" });
     const demand: DemandExpression = {
       id: "demand-natural-query", text: "AI image generator with accurate text", normalizedText: "ai image generator with accurate text", type: "task", rawSignalId: modelSignal.id, sourceEntityId: "entity-natural-query", sourceType: "model-catalog", sourceUrl: modelSignal.sourceUrl,
@@ -91,9 +92,9 @@ describe("candidate queue", () => {
 
     const result = buildCandidateQueue([modelSignal], { now: "2026-09-03T00:00:00.000Z", demandExpressions: [demand] });
 
-    expect(result.formal.map((item) => item.term)).toEqual(["AI image generator with accurate text"]);
-    expect(result.formal[0]?.trendsUrl).toContain("AI%20image%20generator%20with%20accurate%20text%2C%20image%20generator%20with%20text");
-    expect(result.backup).toEqual([]);
+    expect(result.formal).toEqual([]);
+    expect(result.backup.map((item) => item.term)).toEqual(["AI image generator with accurate text"]);
+    expect(result.backup[0]?.trendsUrl).toContain("AI%20image%20generator%20with%20accurate%20text%2C%20image%20generator%20with%20text");
   });
 
   it("prioritizes concrete model combinations and capability modifiers", () => {
@@ -112,7 +113,8 @@ describe("candidate queue", () => {
       demand("baseline", "model-baseline-priority", "text to speech"),
     ] });
 
-    expect(result.formal.map((item) => item.term)).toEqual(["product photo video with voiceover", "region specific image editing"]);
+    expect(result.formal).toEqual([]);
+    expect(result.backup.map((item) => item.term)).toEqual(["product photo video with voiceover", "region specific image editing"]);
   });
 
   it("uses the capability summary as the why-now explanation", () => {
@@ -124,7 +126,7 @@ describe("candidate queue", () => {
 
     const result = buildCandidateQueue([modelSignal], { now: "2026-09-03T00:00:00.000Z", demandExpressions: [demand] });
 
-    expect(result.formal[0]?.capabilitySummary).toBe("只替换图片中的指定区域或元素，其他画面保持不变");
+    expect(result.backup[0]?.capabilitySummary).toBe("只替换图片中的指定区域或元素，其他画面保持不变");
   });
   it("ranks a verified demand expression ahead of its product entity with a distinct ID", () => {
     const demand: DemandExpression = {
