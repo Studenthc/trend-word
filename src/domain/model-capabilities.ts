@@ -35,12 +35,12 @@ const CAPABILITY_SUMMARIES: Record<string, string> = {
   "speech-to-text": "把语音转换为文字",
   translation: "把文本翻译成目标语言",
   "image-editing": "编辑图片中的指定内容",
-  "region-specific-image-editing": "只修改图片中的指定区域或元素，保留其余画面",
-  "multi-reference-image-editing": "同时使用多张参考图进行图片编辑",
-  "layer-aware-image-editing": "按图层分离并编辑图片",
-  "sequential-image-editing": "连续多轮编辑图片并保持画面一致",
+  "region-specific-image-editing": "只替换图片中的指定区域或元素，其他画面保持不变",
+  "multi-reference-image-editing": "用多张参考图同时约束图片编辑结果",
+  "layer-aware-image-editing": "把图片拆成可分别编辑的图层",
+  "sequential-image-editing": "连续多轮编辑同一张图并保持主体一致",
   "image-style-transfer": "把参考风格迁移到目标图片",
-  "text-rendering": "生成带准确文字的图片",
+  "text-rendering": "生成带可读文字的图片",
   "image-segmentation": "把图片中的主体与背景分离",
   "image-classification": "识别并分类图片内容",
   "deepfake-detection": "检测图片或视频是否为深度伪造",
@@ -54,7 +54,7 @@ export function isBaselineModelQuery(value: string): boolean {
   return BASELINE_MODEL_QUERIES.has(normalizeExpression(value).normalized);
 }
 
-const CONCRETE_QUERY_MARKERS = ["product", "photo", "region", "multi", "reference", "layer", "sequential", "style", "typography", "text", "deepfake", "local", "voiceover"];
+const CONCRETE_QUERY_MARKERS = ["product", "photo", "region", "multi", "reference", "layer", "layers", "sequential", "style", "typography", "text", "deepfake", "local", "voiceover", "object", "replacement", "consistent", "accurate", "editor"];
 
 export function modelQueryPriority(value: string): number {
   const normalized = normalizeExpression(value).normalized;
@@ -67,17 +67,17 @@ export function modelQueryPriority(value: string): number {
 const QUERY_BY_CAPABILITY: Record<string, string> = {
   "image-to-video": "image to video",
   "image-editing": "image editing",
-  "region-specific-image-editing": "region specific image editing",
-  "multi-reference-image-editing": "multi reference image editing",
-  "layer-aware-image-editing": "layer aware image editing",
-  "sequential-image-editing": "sequential image editing",
+  "region-specific-image-editing": "AI object replacement",
+  "multi-reference-image-editing": "AI image editor with reference images",
+  "layer-aware-image-editing": "AI image editor with layers",
+  "sequential-image-editing": "consistent image editing",
   "image-style-transfer": "image style transfer",
-  "text-rendering": "image generator with text",
+  "text-rendering": "AI image generator with accurate text",
   "image-segmentation": "image segmentation",
   "image-classification": "image classification",
   "deepfake-detection": "deepfake detection",
   "image-to-video-with-audio": "image to video with audio",
-  "reference-to-video": "reference to video",
+  "reference-to-video": "reference image to video",
   "character-consistent-video": "character consistent video generator",
   "product-photo-to-video": "product photo to video",
   "first-last-frame-video": "first last frame video",
@@ -92,6 +92,15 @@ const QUERY_BY_CAPABILITY: Record<string, string> = {
   "text-to-speech": "text to speech",
   "speech-to-text": "speech to text",
   translation: "text translation",
+};
+
+const QUERY_VARIANTS_BY_CAPABILITY: Record<string, string[]> = {
+  "region-specific-image-editing": ["region specific image editing", "replace object in image"],
+  "multi-reference-image-editing": ["multi reference image editing", "image editor with reference images"],
+  "layer-aware-image-editing": ["layer aware image editing", "image editing with layers"],
+  "sequential-image-editing": ["sequential image editing", "multi turn image editing"],
+  "text-rendering": ["image generator with text", "accurate text image generator"],
+  "reference-to-video": ["reference to video", "image to video from reference image"],
 };
 
 const CAPABILITY_ALIASES: Record<string, string> = {
@@ -141,7 +150,7 @@ export function modelMappingsToDemandExpressions(mappings: KeywordModelMapping[]
       id: `demand-model-${mapping.normalizedKeyword}-${index}`, text: mapping.keyword, normalizedText: mapping.normalizedKeyword, type: "task" as const,
       rawSignalId: model.sourceSignalId, sourceEntityId: mapping.id, sourceType: "model-catalog" as const, sourceUrl: model.modelUrl,
       evidenceQuote: quote, evidenceLocation: "metadata" as const, evidenceGrade: "inferred" as const, qualityState: "review" as const, qualityScore: 55,
-      origin: "capability_derived" as const, sourceText: mapping.originalText.slice(0, 2000), transformation: `${mapping.transformation}；能力总结：${summary}`, evidencePrecision: "semantic" as const, firstSeenAt,
+      origin: "capability_derived" as const, sourceText: mapping.originalText.slice(0, 2000), transformation: `${mapping.transformation}；能力总结：${summary}`, evidencePrecision: "semantic" as const, ...(mapping.queryVariants ? { queryVariants: mapping.queryVariants } : {}), firstSeenAt,
     } satisfies DemandExpression];
   });
 }
@@ -207,7 +216,8 @@ function toMapping(capability: ModelCapability): KeywordModelMapping[] {
     keyword, normalizedKeyword: normalizeExpression(keyword).normalized, capabilityId: capability.id, modelIds: capability.modelIds,
     sourceSignalIds: capability.sourceSignalIds,
     sourceUrls: capability.sourceUrls, originalText: capability.sourceQuotes.join(" | ").slice(0, 2000),
-    transformation: `从模型目录的 ${capability.capability} 能力压缩为任务型搜索表达；模型名不作为需求词`, origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred",
+    transformation: `从模型目录的 ${capability.capability} 能力压缩为自然任务型搜索表达；模型名不作为需求词`, origin: "capability_derived", qualityState: "review", evidenceStatus: "inferred",
+    ...(QUERY_VARIANTS_BY_CAPABILITY[capability.capability] ? { queryVariants: QUERY_VARIANTS_BY_CAPABILITY[capability.capability] } : {}),
   }];
 }
 

@@ -105,7 +105,7 @@ export const parseModelCapability = (value: unknown): ModelCapability => modelCa
 export const keywordModelMappingSchema = z.object({
   id: z.string(), keyword: z.string().min(2).max(80), normalizedKeyword: z.string(), capabilityId: z.string(), modelIds: z.array(z.string()),
   sourceSignalIds: z.array(z.string()), sourceUrls: z.array(z.string().url()), originalText: z.string().min(1).max(2000),
-  transformation: z.string().min(1).max(240), origin: z.literal("capability_derived"), qualityState: z.literal("review"), evidenceStatus: z.literal("inferred"),
+  transformation: z.string().min(1).max(240), origin: z.literal("capability_derived"), qualityState: z.literal("review"), evidenceStatus: z.literal("inferred"), queryVariants: z.array(z.string().min(2).max(80)).max(5).optional(),
 }).strict();
 export type KeywordModelMapping = z.infer<typeof keywordModelMappingSchema>;
 export const parseKeywordModelMapping = (value: unknown): KeywordModelMapping => keywordModelMappingSchema.parse(value);
@@ -136,7 +136,7 @@ export const demandExpressionSchema = z.object({
   type: z.enum(["task", "pain", "alternative", "play"]), rawSignalId: z.string(), sourceEntityId: z.string(),
   sourceType: sourceTypeSchema, sourceUrl: z.string().url(), evidenceQuote: z.string().min(1).max(500),
   evidenceLocation: z.enum(["title", "body", "excerpt", "comment", "metadata"]), evidenceGrade: z.enum(["direct", "reported", "estimated", "inferred"]),
-  qualityState: z.enum(["verified", "review", "rejected"]), qualityScore: z.number().min(0).max(100), origin: z.enum(["user_evidence", "capability_derived"]), sourceText: z.string().min(1).max(2000), transformation: z.string().min(1).max(240), evidencePrecision: z.enum(["exact", "semantic", "inferred"]).optional(), failureReason: z.string().optional(), firstSeenAt: z.string(),
+  qualityState: z.enum(["verified", "review", "rejected"]), qualityScore: z.number().min(0).max(100), origin: z.enum(["user_evidence", "capability_derived"]), sourceText: z.string().min(1).max(2000), transformation: z.string().min(1).max(240), evidencePrecision: z.enum(["exact", "semantic", "inferred"]).optional(), queryVariants: z.array(z.string().min(2).max(80)).max(5).optional(), failureReason: z.string().optional(), firstSeenAt: z.string(),
 });
 export type DemandExpression = z.infer<typeof demandExpressionSchema>;
 export const parseDemandExpression = (value: unknown): DemandExpression => demandExpressionSchema.parse(value);

@@ -105,7 +105,7 @@ function modelRadarLines(modelRadar: ModelRadarReport, sourceHealth: SourceHealt
   const falCount = falUnavailable ? "未核验" : `${counts.get("fal-ai") ?? 0} 条`;
   const actionableMappings = modelRadar.mappings.filter((mapping) => !isBaselineModelQuery(mapping.normalizedKeyword)).sort((left, right) => modelQueryPriority(right.keyword) - modelQueryPriority(left.keyword) || left.keyword.localeCompare(right.keyword, "en-US"));
   const baselineMappingCount = modelRadar.mappings.length - actionableMappings.length;
-  const lines = ["## 模型能力雷达", "", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；待查能力 ${actionableMappings.length} 条${baselineMappingCount > 0 ? `；常规能力略过 ${baselineMappingCount} 条` : ""}；组合假设 ${modelRadar.combinations.length} 条`];
+  const lines = ["## 模型能力雷达", "", "- 解释：以下是模型能力线索，不是用户原话或需求证明；主词和可对照搜索词仅用于人工查 Google Trends。", `- 模型目录：Hugging Face ${huggingFaceCount} · fal.ai ${falCount}；归一化能力 ${modelRadar.capabilities.length} 条；待查能力 ${actionableMappings.length} 条${baselineMappingCount > 0 ? `；常规能力略过 ${baselineMappingCount} 条` : ""}；组合假设 ${modelRadar.combinations.length} 条`];
   for (const note of coverageNotes) {
     if (/(?:huggingface|fal-ai):\s+(?:available|partial|blocked|empty|unverified)/iu.test(note)) lines.push(`- 覆盖：${note.replace(/^fal-ai:/u, "fal.ai:")}`);
   }
@@ -139,12 +139,14 @@ function candidateLines(candidate: CandidateQueue["formal"][number], index: numb
   const summarizedSocial = candidate.evidenceOrigin === "user_evidence" && candidate.evidencePrecision === "semantic";
   const missingFields = displayMissingFields(candidate);
   const trendStatus = trendStatusLabel(candidate);
+  const modelQueryVariants = candidate.queryVariants?.filter((variant) => variant.toLocaleLowerCase("en-US") !== candidate.term.toLocaleLowerCase("en-US")) ?? [];
+  const modelVariantLine = modelQueryVariants.length > 0 ? `\n- 可对照搜索：${modelQueryVariants.join("、")}` : "";
   return [
     `### ${index}. ${candidate.term}`,
-    `- 为什么现在：${candidate.whyNow?.join("；") ?? excerpt(candidate.reason, 100)}`,
+    modelDerived ? `- 能做什么：${candidate.capabilitySummary ?? modelCapabilitySummaryFromCandidate(candidate)}` : `- 为什么现在：${candidate.whyNow?.join("；") ?? excerpt(candidate.reason, 100)}`,
     derived
       ? modelDerived
-        ? `- 类型：产品能力推导，${trendStatus}\n- 能力依据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)}`
+        ? `- 类型：产品能力推导，${trendStatus}${modelVariantLine}\n- 能力依据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)}`
         : `- 类型：产品能力推导，${trendStatus}\n- 证据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`
       : summarizedSocial
         ? `- 类型：社媒观点归纳，${trendStatus}\n- 证据：${excerpt(candidate.evidenceQuote ?? candidate.context, 120)} · ${candidate.authorName ?? "未知作者"} · ${candidate.publishedAt?.slice(0, 10) ?? "未知日期"}`
@@ -152,6 +154,11 @@ function candidateLines(candidate: CandidateQueue["formal"][number], index: numb
     trendVerificationLine(candidate),
     `- 来源：${candidate.sourceCount ? `${candidate.sourceCount} 个来源` : candidate.sourceType} · [原文](${candidate.sourceUrl}) · [查 Google Trends 7d](${candidate.trendsUrl})` + (missingFields.length > 0 ? ` · 尚缺：${missingFields.join("、")}` : ""),
   ];
+}
+
+function modelCapabilitySummaryFromCandidate(candidate: CandidateQueue["formal"][number]): string {
+  const match = candidate.evidenceQuote?.match(/能力总结：([^；]+)/u)?.[1]?.trim();
+  return match ?? modelCapabilitySummary(candidate.term);
 }
 
 function trendStatusLabel(candidate: CandidateQueue["formal"][number]): string {

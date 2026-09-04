@@ -46,13 +46,14 @@ describe("model capability normalization", () => {
   });
 
   it("provides a human-readable capability summary alongside the Trends query", () => {
-    expect(modelCapabilitySummary("multi-reference-image-editing")).toBe("同时使用多张参考图进行图片编辑");
+    expect(modelCapabilitySummary("multi-reference-image-editing")).toBe("用多张参考图同时约束图片编辑结果");
     const records = [model({ id: "huggingface:summary", modelName: "acme/summary", modelUrl: "https://huggingface.co/acme/summary", sourceSignalId: "signal-summary", claimedCapabilities: ["multi-reference-image-editing"] })];
     const radar = buildModelCapabilities(records);
     const expressions = modelMappingsToDemandExpressions(radar.mappings, records);
 
-    const expression = expressions.find((item) => item.text === "multi reference image editing");
-    expect(expression?.evidenceQuote).toContain("能力总结：同时使用多张参考图进行图片编辑");
+    const expression = expressions.find((item) => item.text === "AI image editor with reference images");
+    expect(expression?.queryVariants).toEqual(["multi reference image editing", "image editor with reference images"]);
+    expect(expression?.evidenceQuote).toContain("能力总结：用多张参考图同时约束图片编辑结果");
     expect(expression?.transformation).toContain("能力总结");
   });
 
@@ -65,10 +66,10 @@ describe("model capability normalization", () => {
     ]);
 
     expect(result.mappings.map((item) => item.keyword)).toEqual(expect.arrayContaining([
-      "region specific image editing",
-      "multi reference image editing",
-      "layer aware image editing",
-      "image generator with text",
+      "AI object replacement",
+      "AI image editor with reference images",
+      "AI image editor with layers",
+      "AI image generator with accurate text",
       "image segmentation",
       "deepfake detection",
     ]));

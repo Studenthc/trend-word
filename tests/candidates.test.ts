@@ -40,7 +40,8 @@ describe("candidate queue", () => {
       expect.objectContaining({ sourceType: "model-catalog", evidenceOrigin: "capability_derived", lane: "formal", missingFields: ["Google Trends 7d"] }),
       expect.objectContaining({ sourceType: "manual", evidenceOrigin: "user_evidence" }),
     ]));
-    expect(result.formal.find((item) => item.sourceType === "model-catalog")?.whyNow?.[0]).toContain("模型能力");
+    expect(result.formal.find((item) => item.sourceType === "model-catalog")?.whyNow).toEqual([]);
+    expect(result.formal.find((item) => item.sourceType === "model-catalog")?.recentMentions).toBe(0);
     expect(result.backup).not.toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: "model-catalog" })]));
 
     const entityOnly = buildCandidateQueue([signal("model-entity-only", { sourceType: "model-catalog", sourceName: "Hugging Face", sourceUrl: "https://huggingface.co/acme/opaque-v2", title: "acme/opaque-v2", body: "safetensors, license:mit, region:us", signalKind: "entity" })], { now: "2026-09-03T00:00:00.000Z" });
@@ -81,6 +82,20 @@ describe("candidate queue", () => {
     expect(result.formal.map((item) => item.term)).toEqual(["layer aware image editing", "region specific image editing"]);
   });
 
+  it("keeps fixed natural model queries with modifiers in the formal queue", () => {
+    const modelSignal = signal("model-natural-query", { sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/edit", title: "acme/edit", body: "reference images and accurate text", signalKind: "entity" });
+    const demand: DemandExpression = {
+      id: "demand-natural-query", text: "AI image generator with accurate text", normalizedText: "ai image generator with accurate text", type: "task", rawSignalId: modelSignal.id, sourceEntityId: "entity-natural-query", sourceType: "model-catalog", sourceUrl: modelSignal.sourceUrl,
+      evidenceQuote: "能力总结：生成带可读文字的图片；模型目录依据：fine typography", evidenceLocation: "metadata", evidenceGrade: "inferred", qualityState: "review", qualityScore: 55, origin: "capability_derived", sourceText: "fine typography", transformation: "derived", evidencePrecision: "semantic", queryVariants: ["image generator with text", "accurate text image generator"], firstSeenAt: "2026-09-03T00:00:00.000Z",
+    };
+
+    const result = buildCandidateQueue([modelSignal], { now: "2026-09-03T00:00:00.000Z", demandExpressions: [demand] });
+
+    expect(result.formal.map((item) => item.term)).toEqual(["AI image generator with accurate text"]);
+    expect(result.formal[0]?.trendsUrl).toContain("AI%20image%20generator%20with%20accurate%20text%2C%20image%20generator%20with%20text");
+    expect(result.backup).toEqual([]);
+  });
+
   it("prioritizes concrete model combinations and capability modifiers", () => {
     const models = [
       signal("model-combination", { sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/video", title: "acme/video", body: "image-to-video", signalKind: "entity" }),
@@ -104,12 +119,12 @@ describe("candidate queue", () => {
     const modelSignal = signal("model-summary", { sourceType: "model-catalog", sourceName: "fal.ai", sourceUrl: "https://fal.ai/models/acme/region-edit", title: "acme/region-edit", body: "region-specific-image-editing", signalKind: "entity" });
     const demand: DemandExpression = {
       id: "demand-summary", text: "region specific image editing", normalizedText: "region specific image editing", type: "task", rawSignalId: modelSignal.id, sourceEntityId: "entity-summary", sourceType: "model-catalog", sourceUrl: modelSignal.sourceUrl,
-      evidenceQuote: "能力总结：只修改图片中的指定区域或元素，保留其余画面；模型目录依据：region-specific-image-editing", evidenceLocation: "metadata", evidenceGrade: "inferred", qualityState: "review", qualityScore: 55, origin: "capability_derived", sourceText: "region-specific-image-editing", transformation: "derived", evidencePrecision: "semantic", firstSeenAt: "2026-09-03T00:00:00.000Z",
+      evidenceQuote: "能力总结：只替换图片中的指定区域或元素，其他画面保持不变；模型目录依据：region-specific-image-editing", evidenceLocation: "metadata", evidenceGrade: "inferred", qualityState: "review", qualityScore: 55, origin: "capability_derived", sourceText: "region-specific-image-editing", transformation: "derived", evidencePrecision: "semantic", firstSeenAt: "2026-09-03T00:00:00.000Z",
     };
 
     const result = buildCandidateQueue([modelSignal], { now: "2026-09-03T00:00:00.000Z", demandExpressions: [demand] });
 
-    expect(result.formal[0]?.whyNow).toEqual(["模型能力：只修改图片中的指定区域或元素，保留其余画面"]);
+    expect(result.formal[0]?.capabilitySummary).toBe("只替换图片中的指定区域或元素，其他画面保持不变");
   });
   it("ranks a verified demand expression ahead of its product entity with a distinct ID", () => {
     const demand: DemandExpression = {
